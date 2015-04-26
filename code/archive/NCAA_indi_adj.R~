@@ -1,0 +1,224 @@
+rm(list=ls())
+setwd("~/GitHub/bball/data")
+
+# Read in data
+ncaa <- read.csv("NCAA_indi.csv", strip.white = T)
+ncaa <- subset(ncaa, Season >= 1990)
+	ncaa15 <- read.csv("ncaa.indi_2015upd.csv", strip.white = T)
+	for(i in 1:nrow(ncaa15)){
+		ncaa15$EXP[i] <- ifelse(length(ncaa$EXP[ncaa$Name == ncaa15$Name[i]]) > 0, max(ncaa$EXP[ncaa$Name == ncaa15$Name[i]], na.rm=T) + 1, 1)
+	}	
+ncaa <- rbind(ncaa, ncaa15)	
+load("nba")
+load("ncaa_tm")
+
+####  combine
+
+ncaa <- merge(ncaa, tm, by = c('Tm', 'Season'), all.x = T) 
+ncaa <- merge(ncaa, nba, by = c('Name'), all.x = T) 
+
+# per100poss
+ncaa$POSS <- ncaa$MP*ncaa$PACE
+for(i in 7:20){
+	ncaa[,i] <- round((ncaa[,i]/ncaa$POSS)*100, 1)
+}
+
+ncaa$X2P[is.na(ncaa$X2P)] <- 0
+ncaa$X2PA[is.na(ncaa$X2PA)] <- 0
+ncaa$X3P[is.na(ncaa$X3P)] <- 0
+ncaa$X3PA[is.na(ncaa$X3PA)] <- 0
+
+###
+
+ncaa$Age <- ((ncaa$Season - 1900)*365 - ncaa$DOB)/365
+
+######  Save out
+
+save(ncaa, file = "ncaa_indi")
+
+
+
+####
+###	EURO TIME!!!
+####
+
+###
+###### Arrange euro data then combine with WS/RAPM and other details.
+###
+
+# ARRANGE EURO DATA
+euro <- read.csv("INTL_indi.csv", strip.white = T)
+tm <- read.csv("INTL_team.csv")
+
+euro <- subset(euro, League != "FIBAEU22")
+
+# append team data to individuals
+euro <- merge(euro, tm, by = c("Season", "League", "Team"), all.x=T)
+
+## impute ORBs for NAs and tranform TRB into DRB
+ORB.prj <- mean(euro$ORB[euro$MP > 200]/euro$TRB[euro$MP > 200], na.rm=T)
+euro$ORB[is.na(euro$ORB) & !is.na(euro$TRB)] <- euro$TRB[is.na(euro$ORB) & !is.na(euro$TRB)]*ORB.prj
+euro$ORB_tm[is.na(euro$ORB_tm) & !is.na(euro$TRB_tm)] <- euro$TRB_tm[is.na(euro$ORB_tm) & !is.na(euro$TRB_tm)]*ORB.prj
+euro$TRB <- euro$TRB - euro$ORB
+euro$TRB_tm <- euro$TRB_tm - euro$ORB_tm
+colnames(euro)[16] <- "DRB"
+colnames(euro)[32] <- "DRB_tm"
+
+# Impute missing pace
+euro$Pace[is.na(euro$Pace)] <- mean(tm$Pace, na.rm=T)
+
+# Convert to per100poss
+euro$MP_tm[is.na(euro$MP_tm)] <- euro$G_tm[is.na(euro$MP_tm)]*40*5
+for(i in 25:38){
+	Poss <- (euro$MP_tm * euro$Pace)/5
+	euro[,i] <- ifelse(!is.na(euro[,i]), round((euro[,i]/Poss)*100, 1), NA)
+}
+### INDIVIDUAL STAS per100
+for(i in 9:22){
+	Poss <- euro$MP * euro$Pace
+	euro[,i] <- (euro[,i]/Poss)*100
+}
+
+######  Standardize to EL 
+lgs <- c("ACB", "GREEK", "ADRIATIC", "EUROCUP", "FRENCH", "ITALIAN", "FIBAEU")
+eu.adj <- as.data.frame(matrix(nrow = length(lgs), ncol = 16)) 
+colnames(eu.adj) <- c("N", "MPG", "X2P", "X2PA", "X3P", "X3PA", "FT", "FTA", "ORB", "DRB", "AST", "TOV", "STL", "BLK", "PF", "PTS") 
+rownames(eu.adj) <- lgs
+	put <- 1
+for(i in lgs){
+	LG <- subset(euro, League == i)
+	EL <- subset(euro, League == "EURO")
+		cmb <- merge(LG, EL, by = c("Name", "Season"))
+		eu.adj[put,1] <- nrow(cmb)
+		for(j in 8:22){
+			cmb2 <- subset(cmb, cmb[,j] > 0 & cmb[,j+37] >0)
+			eu.adj[put,(j-6)] <- weighted.mean(cmb2[, j+37], ifelse(cmb2$MP.x > cmb2$MP.y, cmb2$MP.y, cmb2$MP.x), na.rm=T)/weighted.mean(cmb2[, j], ifelse(cmb2$MP.x > cmb2$MP.y, cmb2$MP.y, cmb2$MP.x), na.rm=T)
+		}	
+		put <- put + 1
+}
+##  Applying within Euro translation to seniors
+put <- 1
+for(i in lgs){
+	for(j in 2:ncol(eu.adj)){	
+		euro[euro$League == i, j+6] <-  euro[euro$League == i, j+6]*eu.adj[put, j]
+	}
+	for(j in 3:ncol(eu.adj)){	
+		euro[euro$League == i, j+22] <-  euro[euro$League == i, j+22]*eu.adj[put, j]
+	}	
+	put <- put + 1
+}
+
+# Global seniors adjustment
+lgs <- c("OLYMP", "WC", "FIBAMER")
+gl.adj <- as.data.frame(matrix(nrow = length(lgs), ncol = 16)) 
+colnames(gl.adj) <- c("N", "MPG", "X2P", "X2PA", "X3P", "X3PA", "FT", "FTA", "ORB", "DRB", "AST", "TOV", "STL", "BLK", "PF", "PTS") 
+rownames(gl.adj) <- lgs
+	put <- 1
+for(i in lgs){
+	LG <- subset(euro, League == i)
+	EL <- subset(euro, (League == "EURO" | League == "EUROCUP" | League == "ACB" | League == "FRENCH" | League == "GREEK" | League == "ITALIAN" | League == "ADRIATIC" | League == "FIBAEU"))
+		cmb <- merge(LG, EL, by = c("Name", "Season"))
+		gl.adj[put,1] <- nrow(cmb)
+		for(j in 8:22){
+			cmb2 <- subset(cmb, cmb[,j] > 0 & cmb[,j+37] >0)
+			gl.adj[put,(j-6)] <- weighted.mean(cmb2[, j+37], ifelse(cmb2$MP.x > cmb2$MP.y, cmb2$MP.y, cmb2$MP.x), na.rm=T)/weighted.mean(cmb2[, j], ifelse(cmb2$MP.x > cmb2$MP.y, cmb2$MP.y, cmb2$MP.x), na.rm=T)
+		}	
+		put <- put + 1
+}
+##  Applying within Global translation
+put <- 1
+for(i in lgs){
+	for(j in 2:ncol(gl.adj)){	
+		euro[euro$League == i, j+6] <-  euro[euro$League == i, j+6]*gl.adj[put, j]
+	}
+	for(j in 3:ncol(gl.adj)){	
+		euro[euro$League == i, j+22] <-  euro[euro$League == i, j+22]*gl.adj[put, j]
+	}	
+	put <- put + 1
+}
+
+## finding age-group translations
+lgs <- c("FIBAEU18", "FIBAEU20", "WC19")
+dv.adj <- as.data.frame(matrix(nrow = length(lgs), ncol = 16)) 
+colnames(dv.adj) <- c("N", "MPG", "X2P", "X2PA", "X3P", "X3PA", "FT", "FTA", "ORB", "DRB", "AST", "TOV", "STL", "BLK", "PF", "PTS") 
+rownames(dv.adj) <- lgs
+	put <- 1
+for(i in lgs){
+	LG <- subset(euro, League == i)
+	EL <- subset(euro, League != "FIBAEU18" & League != "FIBAEU20" & League != "WC19")
+		cmb <- merge(LG, EL, by = c("Name", "Season"))
+		dv.adj[put,1] <- nrow(cmb)
+		for(j in 8:22){
+			cmb2 <- subset(cmb, cmb[,j] > 0 & cmb[,j+37] >0)
+			dv.adj[put,(j-6)] <- weighted.mean(cmb2[, j+37], ifelse(cmb2$MP.x > cmb2$MP.y, cmb2$MP.y, cmb2$MP.x), na.rm=T)/weighted.mean(cmb2[, j], ifelse(cmb2$MP.x > cmb2$MP.y, cmb2$MP.y, cmb2$MP.x), na.rm=T)
+		}	
+		put <- put + 1
+}
+##  Applying within age-groups translation to seniors
+put <- 1
+for(i in lgs){
+	for(j in 2:ncol(dv.adj)){	
+		euro[euro$League == i, j+6] <-  euro[euro$League == i, j+6]*dv.adj[put, j]
+	}
+	for(j in 3:ncol(dv.adj)){	
+		euro[euro$League == i, j+22] <-  euro[euro$League == i, j+22]*dv.adj[put, j]
+	}	
+	put <- put + 1
+}
+####
+
+# Impute mean values for those without team data (or with prior adjustments)
+for(i in 25:38){
+	euro[,i] <- ifelse(!is.na(euro[,i]), euro[,i], mean(euro[,i], na.rm=T))
+}
+
+### impute blks and PFs
+for(i in 1:nrow(euro)){
+	euro$BLK[i] <- ifelse(is.na(euro$BLK[i]), weighted.mean(euro$BLK[euro$Name == euro$Name[i]], euro$MP[euro$Name == euro$Name[i]], na.rm=T), euro$BLK[i])
+	euro$PF[i] <- ifelse(is.na(euro$PF[i]), weighted.mean(euro$PF[euro$Name == euro$Name[i]], euro$MP[euro$Name == euro$Name[i]], na.rm=T), euro$PF[i])
+}
+
+###
+
+euro <- euro[-c(23:24)]
+
+
+# Merge within seasons...
+library(plyr)
+eu.inf <- euro[c(1:4)]
+eu.sum <- euro[-c(2:3, 5, 8:39)]
+eu.mean <- euro[-c(2:3, 5:6)]
+
+sum.hld <- aggregate( . ~ Name + Season, data = eu.sum, sum)
+mn.hld <- ddply(eu.mean, .(Name, Season), function(df) {
+   numcolwise(weighted.mean)(df, na.rm = T, w=df$MP)
+})
+mn.hld <- mn.hld[-3]
+
+euro <- merge(sum.hld, mn.hld, by = c("Name", "Season"))
+
+####
+####  Add in other information!
+nba$OBS[nba$Name == "Arvydas Sabonis"] <- 11.14
+nba2 <- nba[-2]
+euro <- merge(euro, nba2, by = "Name", all.x=T)
+
+#### 
+bio <- read.csv("BBRbio.csv", strip.white = T)
+euro <- merge(euro, bio, by="Name", all.x=T)
+euro$Age <- ((euro$Season-1900)*365 - euro$DOB)/365
+
+
+save(euro, file = "euro")
+save(eu.inf, file = "eu.inf")
+
+
+
+
+
+
+
+
+
+
+

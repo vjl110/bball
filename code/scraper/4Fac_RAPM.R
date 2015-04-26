@@ -1,0 +1,639 @@
+setwd("~/GitHub/bball")
+library(glmnet) #load glmnet package
+library(SDMTools) #load glmnet package
+
+
+NPI <- read.csv("NPI.csv")
+HOME.adv <- read.csv("HOME.adv.csv")
+###
+###
+HOME.adv <- data.frame("Season" = 2001:2015, 
+		       "EFG.df"=NA,  "FT.df"=NA,  "TOV.df"=NA,  "REB.df"=NA, "MRG.df" = NA, "EFG.od"=NA,  "FT.od"=NA,  "TOV.od"=NA,  "REB.od"=NA, "MRG.od" = NA) 
+DMP <- list()
+for(s in 2001:2015){
+	#####  Basic pre-pred that applies to all 4 factors
+	lnp.yr <- subset(read.csv("LUP_RPM.csv", stringsAsFactors=FALSE), (Season == s | Season == s-1 | Season == s+1) & !is.na(EFG.df) & !is.na(FT.df) & !is.na(TOV.df) & !is.na(REB.df) & POSS > 0)
+	plr.yr <- subset(read.csv("PLR_RPM.csv", stringsAsFactors=FALSE), Season == s | Season == s-1 | Season == s+1)
+		plr.yr <- plr.yr[,c(1:2, ncol(plr.yr))]
+			plr.yr <- subset(plr.yr, !duplicated(ID))
+	lnp.yr[plr.yr$ID] <- 0
+	row.names(lnp.yr) <- 1:nrow(lnp.yr)
+	for(j in 24:ncol(lnp.yr)){
+		ego <- grep(colnames(lnp.yr)[j], lnp.yr$LINEUP)
+		alt <- grep(colnames(lnp.yr)[j], lnp.yr$CP_LINEUP)
+		lnp.yr[row.names(lnp.yr) %in% ego, j] <- 1
+		lnp.yr[row.names(lnp.yr) %in% alt, j] <- -1
+	}
+	
+	data <- data.matrix(lnp.yr[c(6,24:ncol(lnp.yr))]) #turn the data frame (which is now just 1s, -1s, and 0s) into a matrix
+	X <- sparse.model.matrix(~data[,1]-1)
+	for (i in 2:ncol(data)) {
+		    coluna <- sparse.model.matrix(~data[,i]-1)
+ 			 X <- cBind(X, coluna)
+	}
+	X2 <- X
+	X2[X2 == -1] <- 1
+
+	#####  Begin modeling for each factor
+	DV_DFs <- list(lnp.yr$EFG.df, lnp.yr$FT.df, lnp.yr$TOV.df, lnp.yr$REB.df, lnp.yr$MRG.df/lnp.yr$POSS)
+	DV_ODs <- list(lnp.yr$EFG.od, lnp.yr$FT.od, lnp.yr$TOV.od, lnp.yr$REB.od, lnp.yr$MRG.od/lnp.yr$POSS)
+	WGTs <- list(lnp.yr$FGA, lnp.yr$FGA, lnp.yr$POSS.to, lnp.yr$RB.chance, lnp.yr$POSS)
+
+	coef_hld <- list()
+	for(i in 1:length(DV_DFs)){
+	dv_df <- DV_DFs[[i]]
+	dv_od <- DV_ODs[[i]]
+	wgt <- WGTs[[i]]
+	lambda <- cv.glmnet(X, dv_df, weights=wgt) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
+	lambda.1se <- lambda$lambda.1se #store the lambda value that gives the smallest error in an object called lambda.min
+	ridge <- glmnet(X, dv_df, family=c("gaussian"), wgt, alpha=0, lambda=lambda.1se) #
+		op <- coef(ridge ,s=lambda.1se) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
+			op <- as.data.frame(as.matrix(op))
+				op$ID <- c("INT", colnames(data))
+					colnames(op) <- c("df", "ID")
+						row.names(op) <- 1:nrow(op)
+						HOME.adv[s-2000, i+1] <- op[2,1]
+							op_df <- na.omit(merge(op, plr.yr, by = "ID", all.x=T))
+
+	lambda <- cv.glmnet(X2, dv_od, weights=wgt) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
+	lambda.1se <- lambda$lambda.1se #store the lambda value that gives the smallest error in an object called lambda.min
+	ridge <- glmnet(X2, dv_od, family=c("gaussian"), wgt, alpha=0, lambda=lambda.1se) #
+		op <- coef(ridge ,s=lambda.1se) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
+			op <- as.data.frame(as.matrix(op))
+				op$ID <- c("INT", colnames(data))
+					colnames(op) <- c("od", "ID")
+						row.names(op) <- 1:nrow(op)
+						HOME.adv[s-2000, i+6] <- op[2,1]				
+							op_od <- na.omit(merge(op, plr.yr, by = "ID", all.x=T))
+			
+	op <- merge(op_df[-3], op_od[-3], by = c( "ID", "Name"))
+	coef_hld[[i]] <- op
+	}
+	rm(X)
+	rm(X2)
+
+	output <- data.frame("Name" = coef_hld[[1]]$Name, "ID" = coef_hld[[1]]$ID, 
+			     "EFG.O"=(coef_hld[[1]]$df + coef_hld[[1]]$od)/2, 
+			     "EFG.D"=(coef_hld[[1]]$od - coef_hld[[1]]$df)/2, 
+			     "FT.O"=(coef_hld[[2]]$df + coef_hld[[2]]$od)/2, 
+			     "FT.D"=(coef_hld[[2]]$od - coef_hld[[2]]$df)/2,
+			     "TOV.O"=(coef_hld[[3]]$df + coef_hld[[3]]$od)/2, 
+			     "TOV.D"=(coef_hld[[3]]$od - coef_hld[[3]]$df)/2, 
+			     "REB.O"=(coef_hld[[4]]$df + coef_hld[[4]]$od)/2, 
+			     "REB.D"=(coef_hld[[4]]$od - coef_hld[[4]]$df)/2, 
+			     "MRG.O"=(coef_hld[[5]]$df + coef_hld[[5]]$od)/2, 
+			     "MRG.D"=(coef_hld[[5]]$od - coef_hld[[5]]$df)/2)
+			rm(coef_hld)
+		plr.set <- subset(read.csv("PLR_RPM.csv", stringsAsFactors=FALSE), Season == s | Season == s-1 | Season == s+1)[c(1, 9, 61)]
+		plr.set <- aggregate( . ~ Name + ID, data = plr.set, sum)
+	output <- na.omit(merge(plr.set, output, by = c("Name", "ID"), all.x = T))
+	output <- subset(output, !duplicated(Name))
+	output$Season <- s
+	DMP[[s - 2000]] <- output
+		rm(output)
+}
+NPI <- do.call("rbind", DMP)
+write.csv(NPI, "NPI.csv", row.names = F)
+write.csv(HOME.adv, "HOME.adv.csv", row.names = F)
+
+#########  4FBPM
+
+####
+####	Statistical Prior
+
+NPI <- read.csv("NPI.csv")[-3]
+	plr <- read.csv("PLR_RPM.csv", stringsAsFactors=FALSE)
+	plr <- plr[c(61, 1, 2, 4, 6, 7, 9, 11, 13:14, 16:17, 20:21, 30, 32:33, 35:38, 42:46, 53, 57)]
+	plr[is.na(plr)] <- 0
+	plr$Pos[plr$Pos == "PG"] <- 1
+	plr$Pos[plr$Pos == "SG"] <- 2
+	plr$Pos[plr$Pos == "SF"] <- 3
+	plr$Pos[plr$Pos == "PF"] <- 4
+	plr$Pos[plr$Pos == "C"] <- 5
+	plr$Pos <- as.numeric(plr$Pos)	
+	for(i in 1:nrow(plr)){
+		plr$mp.tot[i] <- sum(plr$MP[plr$Name == plr$Name[i] & plr$Season == plr$Season[i]], na.rm=T)
+	}	
+	plr$mp.tot <- plr$MP/plr$mp.tot
+	for(j in c(5, 16:28)){
+		plr[,j] <- plr[,j]*plr$mp.tot
+	}
+	plr <- aggregate( . ~ Name + ID + Season + Age, data = plr, sum)[-ncol(plr)]
+
+NPI <- merge(plr, NPI, by = c("Name", "ID", "Season"), all.x = T) # are there multi in season?  If so agg...
+
+for(j in 8:15){
+	NPI[,j] <- (NPI[,j]/NPI$MP)*40
+}
+
+#### EFG  ###
+	#O	
+	efgo <- lm(EFG.O ~
+		   	I(per0.3*FGA) + I(per3.10*FGA) + I(per10.16*FGA) + I(per16.23*FGA) + I((per3P-perCRNR)*FGA) + I((perCRNR)*FGA) + 
+			I((X2P+X3P*1.5)/FGA) + I(Asd.2*FGA) + AST. + TOV. + ORB. + I(MP/G) + Pos + Age + I(Age^2)
+	  	, data = NPI, weights = MP)
+	summary(efgo)
+	#D
+	efgd <- lm(EFG.D ~
+		   	I(per0.3*FGA) + I((per3.10 + per10.16 + per16.23)*FGA) + I((per3P-perCRNR)*FGA) + I((perCRNR)*FGA) + 
+     			FT + 			
+		   	BLK.*PF + STL. + I(MP/G) + Pos + Age + I(Age^2)		   
+		     , data = NPI, weights = MP)	
+	summary(efgd)
+#### FT  ###
+	#O	
+	fto <- lm(FT.O ~
+		   	I(per0.3*FGA) + I((per3.10 + per10.16 + per16.23)*FGA) + I((per3P-perCRNR)*FGA) + I((perCRNR)*FGA) +		  
+		  FT + TOV. + ORB. + I(MP/G) + Pos + Age + I(Age^2) + AST. + I(Asd.2*FGA)
+		  , data = NPI, weights = MP)       	
+	summary(fto)
+	#D
+	ftd <- lm(FT.D ~ 
+		  STL.*PF + BLK. + Pos + Age
+		  , data = NPI, weights = MP)	
+	summary(ftd)
+
+#### TOV  ###
+	#O	
+	tovo <- lm(TOV.O ~ 
+		   	AST. + TOV. +
+			I(per0.3*FGA) + I(per3.10*FGA) + I(per10.16*FGA) + I(per16.23*FGA) + I((per3P-perCRNR)*FGA) + I((perCRNR)*FGA) + 
+			Pos + Age + I(Asd.2*FGA)	   
+		     , data = NPI, weights = MP)	
+	summary(tovo)
+	#D
+	tovd <- lm(TOV.D ~ 
+		   STL. + BLK. + PF + DRB. + Pos
+		   , data = NPI, weights = MP)	
+	summary(tovd)
+#### REB  ###
+	#O	
+	rebo <- lm(REB.O ~ 
+		   	ORB. + BLK. +
+			I(per0.3*FGA) + I(per3.10*FGA) + I(per10.16*FGA) + I(per16.23*FGA) + I((per3P-perCRNR)*FGA) + I((perCRNR)*FGA) + I(Asd.2*FGA)
+		 , data = NPI, weights = MP)	
+	summary(rebo)
+	#D
+	rebd <- lm(REB.D ~  
+		   	DRB. + STL. + PF + I(MP/G) + Pos + BLK. + ORB. + Age + I(Age^2)	
+		   , data = NPI, weights = MP)		
+	summary(rebd)
+#########
+NPI$efgo <- predict(efgo, newdat = NPI) 
+NPI$efgd <- predict(efgd, newdat = NPI) 
+NPI$fto <- predict(fto, newdat = NPI) 
+NPI$ftd <- predict(ftd, newdat = NPI) 
+NPI$tovo <- predict(tovo, newdat = NPI) 
+NPI$tovd <- predict(tovd, newdat = NPI) 
+NPI$rebo <- predict(rebo, newdat = NPI) 
+NPI$rebd <- predict(rebd, newdat = NPI) 
+#### REB  ###
+	#O	
+	mrgo <- lm(MRG.O ~ efgo + fto + tovo + rebo
+		 , data = NPI, weights = MP)	
+	summary(mrgo)
+	#D
+	mrgd <- lm(MRG.D ~  efgd + ftd + tovd + rebd
+		   , data = NPI, weights = MP)		
+	summary(mrgd)
+#########
+NPI$mrgo <- predict(mrgo, newdat = NPI) 
+NPI$mrgd <- predict(mrgd, newdat = NPI) 
+
+PRIOR <- na.omit(NPI[c(1:3, 39:ncol(NPI))])
+
+
+#####
+	# Run single-year
+######
+
+DMP <- list()
+for(s in 2001:2015){
+	#####  Basic pre-pred that applies to all 4 factors
+	lnp.yr <- subset(read.csv("LUP_RPM.csv", stringsAsFactors=FALSE), Season == s & !is.na(EFG.df) & !is.na(FT.df) & !is.na(TOV.df) & !is.na(REB.df) & POSS > 0)
+		lnp.yr <- lnp.yr[order(lnp.yr$HOME, decreasing = T), ]
+		hm.brk <- nrow(subset(lnp.yr, HOME == 1))
+	plr.yr <- subset(read.csv("PLR_RPM.csv", stringsAsFactors=FALSE), Season == s)
+		plr.yr <- plr.yr[,c(1:2, ncol(plr.yr))]
+			plr.yr <- subset(plr.yr, !duplicated(ID))
+	lnp.yr[plr.yr$ID] <- 0
+	row.names(lnp.yr) <- 1:nrow(lnp.yr)
+	for(j in 24:ncol(lnp.yr)){
+		ego <- grep(colnames(lnp.yr)[j], lnp.yr$LINEUP)
+		alt <- grep(colnames(lnp.yr)[j], lnp.yr$CP_LINEUP)
+		lnp.yr[row.names(lnp.yr) %in% ego, j] <- 1
+		lnp.yr[row.names(lnp.yr) %in% alt, j] <- -1
+	}
+	
+	data <- data.matrix(lnp.yr[c(6,24:ncol(lnp.yr))]) #turn the data frame (which is now just 1s, -1s, and 0s) into a matrix
+	X <- sparse.model.matrix(~data[,1]-1)
+	for (i in 2:ncol(data)) {
+		    coluna <- sparse.model.matrix(~data[,i]-1)
+ 			 X <- cBind(X, coluna)
+	}
+	X2 <- X
+	X2[X2 == -1] <- 1
+
+	#####  Begin modeling for each factor
+	DV_DFs <- list(lnp.yr$EFG.df, lnp.yr$FT.df, lnp.yr$TOV.df, lnp.yr$REB.df, lnp.yr$MRG.df/lnp.yr$POSS)
+	DV_ODs <- list(lnp.yr$EFG.od, lnp.yr$FT.od, lnp.yr$TOV.od, lnp.yr$REB.od, lnp.yr$MRG.od/lnp.yr$POSS)
+	WGTs <- list(lnp.yr$FGA, lnp.yr$FGA, lnp.yr$POSS.to, lnp.yr$RB.chance, lnp.yr$POSS)
+
+	coef_hld <- list()
+	for(i in 1:length(DV_DFs)){		
+
+	dv_df <- DV_DFs[[i]]
+	dv_od <- DV_ODs[[i]]
+	wgt <- WGTs[[i]]
+	lambda <- cv.glmnet(X, dv_df, weights=wgt, alpha=0) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
+	lambda.1se <- lambda$lambda.1se #store the lambda value that gives the smallest error in an object called lambda.min
+	ridge <- glmnet(X, dv_df, family=c("gaussian"), wgt, alpha=0, lambda=lambda.1se) #
+		op <- coef(ridge ,s=lambda.1se) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
+			op <- as.data.frame(as.matrix(op))
+				op$ID <- c("INT", colnames(data))
+					colnames(op) <- c("df", "ID")
+						row.names(op) <- 1:nrow(op)
+							op_df <- na.omit(merge(op, plr.yr[1:3], by = "ID", all.x=T))
+
+	lambda <- cv.glmnet(X2, dv_od, weights=wgt, alpha=0) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
+	lambda.1se <- lambda$lambda.1se #store the lambda value that gives the smallest error in an object called lambda.min
+	ridge <- glmnet(X2, dv_od, family=c("gaussian"), wgt, alpha=0, lambda=lambda.1se) #
+		op <- coef(ridge ,s=lambda.1se) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
+			op <- as.data.frame(as.matrix(op))
+				op$ID <- c("INT", colnames(data))
+					colnames(op) <- c("od", "ID")
+						row.names(op) <- 1:nrow(op)
+							op_od <- na.omit(merge(op, plr.yr[1:3], by = "ID", all.x=T))
+			
+	op <- merge(op_df[-3], op_od[-3], by = c( "ID", "Name"))
+	coef_hld[[i]] <- op
+	}
+	rm(X)
+	rm(X2)	
+	
+	output <- data.frame("Name" = coef_hld[[1]]$Name, "ID" = coef_hld[[1]]$ID,
+			     "EFG.O"=(coef_hld[[1]]$df + coef_hld[[1]]$od)/2, 
+			     "EFG.D"=(coef_hld[[1]]$od - coef_hld[[1]]$df)/2, 
+			     "FT.O"=(coef_hld[[2]]$df + coef_hld[[2]]$od)/2, 
+			     "FT.D"=(coef_hld[[2]]$od - coef_hld[[2]]$df)/2,
+			     "TOV.O"=(coef_hld[[3]]$df + coef_hld[[3]]$od)/2, 
+			     "TOV.D"=(coef_hld[[3]]$od - coef_hld[[3]]$df)/2, 
+			     "REB.O"=(coef_hld[[4]]$df + coef_hld[[4]]$od)/2, 
+			     "REB.D"=(coef_hld[[4]]$od - coef_hld[[4]]$df)/2, 
+			     "MRG.O"=(coef_hld[[5]]$df + coef_hld[[5]]$od)/2, 
+			     "MRG.D"=(coef_hld[[5]]$od - coef_hld[[5]]$df)/2)
+			rm(coef_hld)
+		plr.set <- subset(read.csv("PLR_RPM.csv", stringsAsFactors=FALSE), Season == s)[c(1, 9, 61)]
+		plr.set <- aggregate( . ~ Name + ID, data = plr.set, sum)
+	output <- na.omit(merge(plr.set, output, by = c("Name", "ID"), all.x = T))
+	output <- subset(output, !duplicated(Name))
+	output$Season <- s
+	DMP[[s - 2000]] <- output
+		rm(output)
+}
+
+BPM <- do.call("rbind", DMP)
+write.csv(BPM, "BPM.csv", row.names = F)
+
+
+############  PREPARE FOR PUB
+
+
+# PLAYER INFO
+	plr <- read.csv("PLR_RPM.csv", stringsAsFactors=FALSE)
+	plr <- subset(plr, Season >= 2001)
+	plr <- plr[c(61, 1:3, 9)]
+	for(s in 2001:2015){
+		plrz <- unique(plr$ID[plr$Season == s])
+		for(i in 1:length(plrz)){
+			plr$Tm[plr$ID == plrz[i] & plr$Season == s] <- 
+				paste(sort(unique(plr$Tm[plr$ID == plrz[i] & plr$Season == s])), collapse = ", ")
+		}	
+	}
+	plr <- aggregate( . ~ Name + ID + Tm + Season, data = plr, sum)
+
+#  NPI output
+NPI <- read.csv("NPI.csv")[c(1:2,14,4:13)]
+	NPI <- merge(NPI, plr, by = c("Name", "ID", "Season"))
+	NPI <- NPI[c(1, 14, 3, 15, 4:13)]
+	for(j in c(6, 8, 9, 12, 14)){
+		NPI[,j] <- -NPI[,j]
+	}
+NPI$EFG <- NPI$EFG.O + NPI$EFG.D
+NPI$FT <- NPI$FT.O + NPI$FT.D
+NPI$TOV <- NPI$TOV.O + NPI$TOV.D
+NPI$REB <- NPI$REB.O + NPI$REB.D
+NPI$NET <-  NPI$MRG.O + NPI$MRG.D
+
+#for(j in 5:19){
+#	NPI <- NPI[order(NPI[,j]), ]
+#	NPI[,j] <- round((1:nrow(NPI))/nrow(NPI), 2)
+#}
+
+#BPM output
+	PRIOR <- merge(PRIOR, plr, by = c("Name", "ID", "Season"))
+	PRIOR <- PRIOR[c(1, 14, 3, 15, 4:13)]
+	for(j in c(6, 8, 9, 12, 14)){
+		PRIOR[,j] <- -PRIOR[,j]
+	}
+PRIOR$EFG <- PRIOR$efgo + PRIOR$efgd
+PRIOR$FT <- PRIOR$fto + PRIOR$ftd
+PRIOR$TOV <- PRIOR$tovo + PRIOR$tovd
+PRIOR$REB <- PRIOR$rebo + PRIOR$rebd
+PRIOR$NET <-  PRIOR$mrgo + PRIOR$mrgd
+
+colnames(PRIOR) <- colnames(NPI)
+
+#for(j in 5:19){
+#	PRIOR <- PRIOR[order(PRIOR[,j]), ]
+#	PRIOR[,j] <- round((1:nrow(PRIOR))/nrow(PRIOR), 2)
+#}
+
+
+
+######
+####### Hybrid
+hld <- merge(NPI, PRIOR, by = c("Name", "Tm", "Season", "MP"), all.x = T)
+for(j in c(13:14, 19, 28:29, 34)){
+	hld[,j] <- hld[,j]*100
+}
+for(j in 20:34){
+	avg <- (mean(hld[,j], na.rm=T) + mean(hld[,j-15], na.rm=T))/2
+	std <- (sd(hld[,j-15], na.rm=T) + sd(hld[,j], na.rm=T))/2	
+	hld[,j-15] <- scale(hld[,j-15])
+		hld[,j-15] <- avg + std*hld[,j-15]
+}
+
+for(j in 5:19){
+	hld[,j] <- ifelse(hld$MP < 2000, hld[,j]*(hld$MP/2000), hld[,j])
+}
+
+HYB <- as.data.frame(matrix(nrow = nrow(NPI), ncol = ncol(NPI)))
+colnames(HYB) <- colnames(NPI)
+HYB[, 1:4] <- hld[, 1:4]
+
+	HYB$EFG.O <- summary(efgo)$r.squared*hld$EFG.O.y + (1-summary(efgo)$r.squared)*hld$EFG.O.x
+	HYB$EFG.D <- summary(efgd)$r.squared*hld$EFG.D.y + (1-summary(efgd)$r.squared)*hld$EFG.D.x
+	HYB$FT.O <- summary(fto)$r.squared*hld$FT.O.y + (1-summary(fto)$r.squared)*hld$FT.O.x
+	HYB$FT.D <- summary(ftd)$r.squared*hld$FT.D.y + (1-summary(ftd)$r.squared)*hld$FT.D.x
+	HYB$TOV.O <- summary(tovo)$r.squared*hld$TOV.O.y + (1-summary(tovo)$r.squared)*hld$TOV.O.x
+	HYB$TOV.D <- summary(tovd)$r.squared*hld$TOV.D.y + (1-summary(tovd)$r.squared)*hld$TOV.D.x
+	HYB$REB.O <- summary(rebo)$r.squared*hld$REB.O.y + (1-summary(rebo)$r.squared)*hld$REB.O.x
+	HYB$REB.D <- summary(rebd)$r.squared*hld$REB.D.y + (1-summary(rebd)$r.squared)*hld$REB.D.x
+	HYB$MRG.O <- summary(mrgo)$r.squared*hld$MRG.O.y + (1-summary(mrgo)$r.squared)*hld$MRG.O.x
+	HYB$MRG.D <- summary(mrgd)$r.squared*hld$MRG.D.y + (1-summary(mrgd)$r.squared)*hld$MRG.D.x
+	HYB$EFG <- HYB$EFG.O + HYB$EFG.D
+	HYB$FT <- HYB$FT.O + HYB$FT.D
+	HYB$TOV <- HYB$TOV.O + HYB$TOV.D
+	HYB$REB <- HYB$REB.O + HYB$REB.D
+	HYB$NET <- HYB$MRG.O + HYB$MRG.D
+
+for(j in c(4:12, 15:18)){
+	HYB[,j] <- round(HYB[,j], 3)
+}
+for(j in c(13:14, 19)){
+	HYB[,j] <- round(HYB[,j], 2)
+}
+HYB <- na.omit(HYB)
+
+
+for(j in c(4:12, 15:18, 20:27, 30:33)){
+	hld[,j] <- round(hld[,j], 3)
+}
+for(j in c(13:14, 19, 28:29, 34)){
+	hld[,j] <- round(hld[,j], 2)
+}
+PM <- as.data.frame(matrix(nrow = nrow(NPI), ncol = ncol(NPI)))
+colnames(PM) <- colnames(NPI)
+PM[, 1:19] <- hld[, 1:19]
+PM <- na.omit(PM)
+
+BX <- as.data.frame(matrix(nrow = nrow(NPI), ncol = ncol(NPI)))
+colnames(BX) <- colnames(NPI)
+BX[, 1:19] <- hld[, c(1:4, 20:34)]
+BX <- na.omit(BX)
+
+write.csv(HYB, "HYB.OUT.csv", row.names=F)
+write.csv(BX, "BPM.OUT.csv", row.names=F)
+write.csv(PM, "NPI.OUT.csv", row.names=F)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Hybrid output
+BPM <- read.csv("BPM.csv")
+TST <- merge(BPM, PRIOR, by = c("Name", "ID", "Season"), all.x = T)
+for(j in c(6,8,9,12,14,16,18,19,22,24)){
+	TST[,j] <- -TST[,j]
+}
+for(j in 5:24){
+	TST <- TST[order(TST[,j]), ]
+	TST[,j] <- (1:nrow(TST))/nrow(TST)
+}
+	bx.wgt <- TST$MP/3500
+	pm.wgt <- 1-bx.wgt
+	TST[,5:14] <- TST[,5:14]*pm.wgt + TST[,15:24]*bx.wgt
+	TST <- TST[1:14]
+
+TST.pre <- TST
+	TST.pre$Season <- TST.pre$Season+1
+	colnames(TST.pre) <- c("Name", "ID", "Season", "MP.pre", 
+			       "EFG.O.pre", "EFG.D.pre", "FT.O.pre", "FT.D.pre", "TOV.O.pre", "TOV.D.pre", "REB.O.pre", "REB.D.pre", "MRG.O.pre", "MRG.D.pre")
+TST <- merge(TST, TST.pre, by = c("Name", "ID", "Season"), all.x = T)
+TST[is.na(TST)] <- 0
+
+	ct.wgt <- (TST$MP*3)/(TST$MP*3 + TST$MP.pre)
+	pt.wgt <- 1-ct.wgt
+	TST[, 5:14] <- TST[, 5:14]*ct.wgt + TST[, 16:25]*pt.wgt
+	TST <- TST[1:14]
+
+TST$EFG <- (TST$EFG.O + TST$EFG.D)/2
+TST$FT <- (TST$FT.O + TST$FT.D)/2
+TST$TOV <- (TST$TOV.O + TST$TOV.D)/2
+TST$REB <- (TST$REB.O + TST$REB.D)/2	
+TST$NET <- (TST$MRG.O + TST$MRG.D)/2
+for(j in 15:19){
+	TST <- TST[order(TST[,j]), ]
+	TST[,j] <- (1:nrow(TST))/nrow(TST)
+}
+
+colnames(TST)[13:14] <- c("O", "D")
+for(j in 5:19){
+	TST[,j] <- round(TST[,j], 3)
+}
+TST <- merge(TST, plr, by = c("Name", "ID", "Season", "MP"))
+TST <- TST[c(1, 20, 3:19)]
+
+write.csv(TST, "HYB.OUT.csv", row.names=F)
+
+#  NPI output
+NPI <- read.csv("NPI.csv")[c(1:2,14,4:13)]
+	NPI <- merge(NPI, plr, by = c("Name", "ID", "Season"))
+	NPI <- NPI[c(1, 14, 3, 15, 4:13)]
+	for(j in c(6, 8, 9, 12, 14)){
+		NPI[,j] <- -NPI[,j]
+	}
+NPI$EFG <- NPI$EFG.O + NPI$EFG.D
+NPI$FT <- NPI$FT.O + NPI$FT.D
+NPI$TOV <- NPI$TOV.O + NPI$TOV.D
+NPI$REB <- NPI$REB.O + NPI$REB.D
+NPI$NET <-  NPI$MRG.O + NPI$MRG.D
+
+for(j in 5:19){
+	NPI <- NPI[order(NPI[,j]), ]
+	NPI[,j] <- round((1:nrow(NPI))/nrow(NPI), 2)
+}
+
+write.csv(NPI, "NPI.OUT.csv", row.names=F)
+
+
+#BPM output
+	PRIOR <- merge(PRIOR, plr, by = c("Name", "ID", "Season"))
+	PRIOR <- PRIOR[c(1, 14, 3, 15, 4:13)]
+	for(j in c(6, 8, 9, 12, 14)){
+		PRIOR[,j] <- -PRIOR[,j]
+	}
+PRIOR$EFG <- PRIOR$efgo + PRIOR$efgd
+PRIOR$FT <- PRIOR$fto + PRIOR$ftd
+PRIOR$TOV <- PRIOR$tovo + PRIOR$tovd
+PRIOR$REB <- PRIOR$rebo + PRIOR$rebd
+PRIOR$NET <-  PRIOR$mrgo + PRIOR$mrgd
+
+colnames(PRIOR) <- colnames(NPI)
+
+f#or(j in 5:19){
+#	PRIOR <- PRIOR[order(PRIOR[,j]), ]
+#	PRIOR[,j] <- round((1:nrow(PRIOR))/nrow(PRIOR), 2)
+#}
+
+write.csv(PRIOR, "BPM.OUT.csv", row.names=F)
+
+
+
+
+
+
+
+
+
+
+
+
+#########  4FBPM
+BPM$TOV.O <- -BPM$TOV.O
+BPM$TOV.D <- -BPM$TOV.D
+
+BPM <- BPM[order(BPM$Season), ]
+strt <- nrow(subset(BPM, Season == 2001))
+for(i in (strt+1):nrow(BPM)){
+	for(j in 3:ncol(BPM)){
+		reg <- BPM[i,j]*(BPM$MP[i]/max(BPM$MP))
+		BPM[i,j] <- (1-reg)*ifelse(length(BPM[,j][BPM$Season == BPM$Season[i] - 1]) < 1, BPM[,3][BPM$Season == s], -wt.sd(BPM[,3]) + 
+			reg*BPM[,3][BPM$Season == s]				   
+
+
+
+
+
+TST <- na.omit(merge(tst, subset(PRIOR, Season == 2015), all.x = T)[-2])
+	for(j in 4:ncol(TST)){
+		TST <- TST[order(TST[,j]), ]
+		TST[,j] <- 1:nrow(TST)
+	}
+OUTPUT <- data.frame("Name"=TST$Name, "MP"=TST$MP,
+		      "EFG.O"=TST$EFG.O*(TST$MP/3000) + TST$efgo*(1-(TST$MP/3000)), 
+		      "FT.O"=TST$FT.O*(TST$MP/3000) + TST$fto*(1-(TST$MP/3000)), 
+		      "TOV.O"=-(TST$TOV.O*(TST$MP/3000) +TST$tovo*(1-(TST$MP/3000))), 
+		      "REB.O"=TST$REB.O*(TST$MP/3000) + TST$rebo*(1-(TST$MP/3000)), 		      
+		      "EFG.D"=-(TST$EFG.D*(TST$MP/3000) + TST$efgd*(1-(TST$MP/3000))), 
+		      "FT.D"=-(TST$FT.D*(TST$MP/3000) + TST$ftd*(1-(TST$MP/3000))), 
+		      "TOV.D"=TST$TOV.D*(TST$MP/3000) + TST$tovd*(1-(TST$MP/3000)), 
+		      "REB.D"=-(TST$REB.D*(TST$MP/3000) + TST$rebd*(1-(TST$MP/3000))),
+		      "O"=TST$MRG.O*(TST$MP/3000) + TST$mrgo*(1-(TST$MP/3000)), 
+		      "D"=-(TST$MRG.D*(TST$MP/3000) + TST$mrgd*(1-(TST$MP/3000))))
+OUTPUT$NET <- (OUTPUT$O + OUTPUT$D)/2
+#for(j in 3:ncol(OUTPUT)){
+#	sit <- (max(OUTPUT$MP)+1) - OUTPUT$MP
+#	OUTPUT[,j] <- scale(OUTPUT[,j])
+#	OUTPUT[,j] <- OUTPUT[,j]*(OUTPUT$MP/mx) + -1.5*(1 - OUTPUT$MP/mx)
+#}
+
+for(j in 3:ncol(OUTPUT)){
+	OUTPUT <- OUTPUT[order(OUTPUT[,j]), ]
+	OUTPUT[,j] <- 1:nrow(OUTPUT)
+	OUTPUT[,j] <- round(OUTPUT[,j]/nrow(OUTPUT), 3)
+}
+
+
+
+
+
+
+
+TST <- data.frame(BPM, 
+		  "EFGO.pre"=NA, "EFGD.pre"=NA, "FTO.pre"=NA, "FTD.pre"=NA, "TOVO.pre"=NA, "TOVD.pre"=NA, "REBO.pre"=NA, "REBD.pre"=NA, "MRGO.pre"=NA, "MRGD.pre"=NA,
+		  "EFGO.pst"=NA, "EFGD.pst"=NA, "FTO.pst"=NA, "FTD.pst"=NA, "TOVO.pst"=NA, "TOVD.pst"=NA, "REBO.pst"=NA, "REBD.pst"=NA, "MRGO.pst"=NA, "MRGD.pst"=NA)
+for(i in 1:nrow(TST)){
+	TST[i,15:24] <- ifelse(length(TST$ID[TST$ID == TST$ID[i] & TST$Season == TST$Season[i]-1]) == 1, 
+				  as.numeric(TST[TST$ID == TST$ID[i] & TST$Season == TST$Season[i]-1, 4:13]), rep(NA, 10))
+	TST[i,25:34] <- ifelse(length(TST$ID[TST$ID == TST$ID[i] & TST$Season == TST$Season[i]+1]) == 1, 
+				  as.numeric(TST[TST$ID == TST$ID[i] & TST$Season == TST$Season[i]+1, 4:13]), rep(NA, 10))
+}
+TST <- subset(TST, Season >= 2002)
+	for(j in 15:24){
+		TST[is.na(TST[,j]), j] <- wt.mean(TST[is.na(TST[,j]), j-11], TST[is.na(TST[,j]), 3])
+	}	
+
+
+TST <- merge(TST, PRIOR, by = c("Name", "ID", "Season"), all.x = T)
+for(j in 5:44){
+	TST[,j] <- scale(TST[,j])
+}
+	for(j in 5:14){
+		m1 <- lm(TST[,j+20] ~ TST[,j] + TST[,j+30], weights = MP, data = TST)
+		pm.wgt <- as.numeric(coef(m1)[2]/(coef(m1)[2] + coef(m1)[3]))
+		box.wgt <- as.numeric(1 - pm.wgt)
+		for(i in 1:nrow(TST)){
+			TST[i,j] <- TST[i,j]*pm.wgt+ TST[i,j+30]*box.wgt
+		}
+	}
+
+for(i in 1:nrow(TST)){
+	TST[i,15:24] <- ifelse(length(TST$ID[TST$ID == TST$ID[i] & TST$Season == TST$Season[i]-1]) == 1, 
+				  as.numeric(TST[TST$ID == TST$ID[i] & TST$Season == TST$Season[i]-1, 4:13]), rep(NA, 10))
+	TST[i,25:34] <- ifelse(length(TST$ID[TST$ID == TST$ID[i] & TST$Season == TST$Season[i]+1]) == 1, 
+				  as.numeric(TST[TST$ID == TST$ID[i] & TST$Season == TST$Season[i]+1, 4:13]), rep(NA, 10))
+}
+for(j in 5:44){
+	TST[,j] <- scale(TST[,j])
+}
+
+	for(j in 5:14){
+		m1 <- lm(TST[,j+20] ~ TST[,j] + TST[,j+10], weights = MP, data = TST)
+		crnt.wgt <- as.numeric(coef(m1)[2]/(coef(m1)[2] + coef(m1)[3]))
+		past.wgt <- as.numeric(1 - crnt.wgt)
+		for(i in 1:nrow(TST)){
+			TST[i,j] <- TST[i,j]*crnt.wgt+ TST[i,j+10]*past.wgt
+		}
+	}

@@ -1,0 +1,468 @@
+setwd("~/GitHub/bball")
+
+library(XML)
+library(RCurl)
+library(httr)
+library(stringr)
+
+###
+	GAMESET <- read.csv("GAMESET.csv", stringsAsFactors=FALSE)
+	LINEUP.DMP <- read.csv("LINEUP_DMP.csv", stringsAsFactors=FALSE)
+	PLAYER.DMP <- read.csv("PLAYER_DMP.csv", stringsAsFactors=FALSE)
+##
+
+###
+##### Build "GAMESET" of Game-IDs to pull data from.
+###
+GAMESET <- data.frame("YEAR" = NA, "MONTH" = NA, "DAY" = NA, "GM1" = NA, "GM2" = NA, "GM3" = NA, "GM4" = NA, "GM5" = NA, "GM6" = NA, "GM7" = NA, "GM8" = NA, "GM9" = NA, "GM10" = NA, "GM11" = NA, "GM12" = NA, "GM13" = NA, "GM14" = NA, "GM15" = NA)
+year <- 2000:2015
+mnth <- 1:12
+day <- 1:31
+for(y in 1:length(year)){
+	for(m in 1:length(mnth)){
+		for(d in 1:length(day)){			
+			ngt <- paste0(c("http://www.basketball-reference.com/boxscores/index.cgi?month=", mnth[m], "&day=", day[d], "&year=", year[y]), collapse = "")
+			ngt <- GET(ngt)
+			ngt <- content(ngt, as="text")
+			lnk <- xpathSApply(htmlParse(ngt), "//a/@href")
+			lnk <- as.character(lnk[grep("boxscores/pbp/", lnk)])
+			lnk <- c(year[y], mnth[m], day[d], lnk)
+			blank <- ncol(GAMESET) - length(lnk)
+			GAMESET <- rbind(GAMESET, c(lnk, rep(NA, blank)))
+		}
+	}
+}
+GAMESET <- subset(GAMESET, !is.na(GM1))	
+#write.csv(GAMESET, "GAMESET.csv", row.names=FALSE)
+
+###
+##### Work through Game-IDs to produce PbP data.
+###
+
+#######  Pull specific games from the gameset and start working on it...
+#GAMESET <- read.csv("GAMESET.csv")
+
+LINEUP.DMP <- data.frame("YEAR"=NA, "MONTH"=NA, "DAY"=NA, "Tm"=NA, "Opp"=NA, "HOME"=NA, "LINEUP"=NA, "CP_LINEUP"=NA, "X2P"=NA, "X2PA"=NA, "X3P"=NA, "X3PA"=NA, "FT"=NA, "FTA"=NA, "DRB"=NA, "ORB"=NA, "TOV"=NA, "POSS"=NA, "PTS"=NA, "X2P.cp"=NA, "X2PA.cp"=NA, "X3P.cp"=NA, "X3PA.cp"=NA, "FT.cp"=NA, "FTA.cp"=NA, "DRB.cp"=NA, "ORB.cp"=NA, "TOV.cp"=NA, "POSS.cp"=NA, "PTS.cp"=NA)
+PLAYER.DMP <- data.frame("Name" = NA, "ID" = NA)
+
+for(n in 1712:nrow(GAMESET)){
+	for(g in 4:length(GAMESET[n,][!is.na(GAMESET[n,])])){	
+		GM.hld <- GAMESET[n, c(1:3, g)]
+#######
+
+#pbp.url <-paste(c("http://www.basketball-reference.com/", GM.hld[4]), collapse = "")
+pbp.url <-"http://www.basketball-reference.com//boxscores/pbp/200203260IND.html"
+
+	pbp <- GET(pbp.url)
+		pbp <- content(pbp, as="text")	#grab unique IDs
+		pbp <- gsub('_aqua|_yellow|_lime|_white|_red',"",pbp)		
+		pbp <- gsub('.*"background border padding_left padding_right\">tie</span>&nbsp;&#9642;&nbsp;<span class=\"background border padding_left padding_right\">lead change</span></div>\n</div>\n<table class=\"no_highlight stats_table\">\n<tr id=\"q1\">\n<th colspan=\"6\">',"",pbp)
+		pbp <- strsplit(pbp, "</td>\n</tr>\n</table>\n</div></td>\n</tr>\n</table>\n</div>\n<!-- SR js files")[[1]][1]
+		pbp <- as.data.frame(strsplit(pbp, 'class=\"align_right\">'))
+		pbp <- data.frame(do.call('rbind', strsplit(as.character(pbp[,1]),'class=\"align_center',fixed=TRUE)))
+			tm1 <- sub('.*Time</th>\n<th>', "", as.character(pbp[1,1]))
+				tm1 <- strsplit(tm1, "</")[[1]][1]
+			tm2 <- sub('.*Score</th>\n<th>', "", as.character(pbp[1,1]))
+				tm2 <- strsplit(tm2, "</")[[1]][1]
+			colnames(pbp) <- c(tm1, tm2)
+		pbp[,1] <- gsub('<a href=\"/players/..', " ", as.character(pbp[,1])) 
+		pbp[,1] <- gsub('.html.*?</a>', "", as.character(pbp[,1]))
+		pbp[,1] <- gsub('.*Start of ', "Start of ", as.character(pbp[,1]))
+		pbp[,1] <- gsub('</td>\n<td class=\"background\">|</td>\n<td colspan=\"5\"|</td>\n<td>&nbsp;</td><td>&nbsp;</td><td|</td><td class=\"align_right background\">|</td><td|&nbsp'," ", pbp[,1])
+		pbp[,1] <- sub('^.*?\\:..\\..+', "", pbp[,1])		
+		pbp[,1] <- gsub("^ *|(?<= ) | *$", "", pbp[,1], perl = T) 
+
+		pbp[,2] <- gsub('.*class="align_right background">|.*</td><td>&nbsp;</td><td>&nbsp;</td>\n</tr>\n<tr>\n<td',"",pbp[,2])		
+		pbp[,2] <- gsub('<a href=\"/players/..', " ", as.character(pbp[,2])) 
+		pbp[,2] <- gsub('.html.*?</a>', "", as.character(pbp[,2])) 
+		pbp[,2] <- gsub('.*Start of ', "Start of ", as.character(pbp[,2]))
+		pbp[,2] <- gsub('</td><td class=\"background\">|&nbsp;</td><td class=\"background\">|</td>\n</tr>\n<tr>\n<td|\">'," ", pbp[,2])		
+		pbp[,2] <- gsub("^ *|(?<= ) | *$", "", pbp[,2], perl = T) 
+			endz <- grep("End of ", pbp[,2])
+		pbp <- pbp[-c(1, endz),]
+
+		
+box.url <- gsub("/pbp", "", pbp.url)	# using the box to build a list of players who should be in game.
+	box <- GET(box.url)
+			IDs <- content(box, as="text")	#grab unique IDs
+			IDs <- xpathSApply(htmlParse(IDs), "//a/@href")
+			IDs <- unique(as.character(IDs[grep("players/", IDs)]))[-1]
+			IDs <- gsub("players", "", IDs)
+			IDs <- gsub("html", "", IDs)			
+			IDs <- gsub("[^A-Za-z0-9]", "", IDs)
+			IDs <- sub('^.', "", IDs)			
+
+	box <- readHTMLTable(rawToChar(box$content), stringsAsFactors = F)
+	bxpull <- grep("basic", names(box))
+	away.bx <- as.data.frame(box[[bxpull[1]]])
+		players.away <- subset(away.bx, MP != "MP")[1]
+		colnames(players.away)[1] <- "Name"
+	home.bx <- as.data.frame(box[[bxpull[2]]])
+		players.home <- subset(home.bx, MP != "MP")[1]
+		colnames(players.home)[1] <- "Name"
+		IDs <- IDs[1:length(c(players.away$Name, players.home$Name))]
+	players <- data.frame("Name" = c(players.away$Name, players.home$Name), 
+			      "ID" = IDs, "HOME" = c(rep( 0, nrow(players.away)), rep( 1, nrow(players.home))) )
+
+## Add quarter indicator
+	row.names(pbp) <- c(1:nrow(pbp))	
+	QTR <- c(grep("Start of", pbp[, 2]), nrow(pbp)) 
+	quarter <- 1
+	for(i in QTR[-length(QTR)]){
+		pbp$Q[as.numeric(row.names(pbp)) >= i] <- quarter
+		quarter <- quarter + 1
+	}
+
+# VERY SPECIFIC FIXES FOR BAD PBP
+
+
+############################################
+
+
+#############  BUILD 
+
+	#build and clean a dataframe to plug in players from team 1
+	player.mtx <- matrix(nrow = nrow(pbp), ncol = nrow(players))
+	gm <- data.frame(pbp, player.mtx)
+	colnames(gm) <-c(colnames(pbp), as.character(players$ID))
+
+	for(j in 4:ncol(gm)){
+		NAME <- paste0(colnames(gm)[j], "")
+			entr <- sort(c(grep(paste(NAME, "enters"), gm[,1]), grep(paste(NAME, "enters"), gm[,2])))
+			exit <- sort(c(grep(paste("the game for", NAME), gm[,1]), grep(paste("the game for", NAME), gm[,2])))
+			ejct <- sort(c(grep(paste(NAME, "ejected"), gm[,1]), grep(paste(NAME, "ejected"), gm[,2])))
+				mntn <- sort(c(grep(NAME, gm[,1]), grep(NAME, gm[,2])))	
+				offcrt <- sort(c(grep(paste("Technical foul by", NAME), gm[,1]), grep(paste("Technical foul by", NAME), gm[,2]),
+						 grep(paste(NAME, "ejected"), gm[,1]), grep(paste(NAME, "ejected"), gm[,2])))
+					mntn <- sort(mntn[!(mntn %in% offcrt)])	
+
+		EVNTS <- as.data.frame(matrix(nrow = length(c(entr, exit, QTR)), ncol = 2))
+		colnames(EVNTS) <- c("LOC", "TYP")
+		EVNTS$LOC <- c(entr, exit, QTR)
+		EVNTS$TYP <- c(rep("ENTER", length(entr)), rep("EXIT", length(exit)), rep("QRTR", length(QTR)))
+		EVNTS <- EVNTS[order(EVNTS$LOC), ]				
+		#now fill in the holes
+	        for(i in 2:(nrow(EVNTS)-1)){
+			if(EVNTS$TYP[i] == "ENTER"){
+				gm[as.numeric(row.names(gm)) == EVNTS$LOC[i], j] <- 1
+				gm[as.numeric(row.names(gm)) < EVNTS$LOC[i] & as.numeric(row.names(gm)) > EVNTS$LOC[i-1], j] <- 0
+				gm[as.numeric(row.names(gm)) > EVNTS$LOC[i] & as.numeric(row.names(gm)) < EVNTS$LOC[i+1], j] <- 1				
+			}else if(EVNTS$TYP[i] == "EXIT"){
+				gm[as.numeric(row.names(gm)) == EVNTS$LOC[i], j] <- 1				
+				gm[as.numeric(row.names(gm)) < EVNTS$LOC[i] & as.numeric(row.names(gm)) > EVNTS$LOC[i-1], j] <- 1				
+				gm[as.numeric(row.names(gm)) > EVNTS$LOC[i] & as.numeric(row.names(gm)) < EVNTS$LOC[i+1], j] <- 0				
+			}else{
+				if(EVNTS$TYP[i-1] == "QRTR"){
+					gm[as.numeric(row.names(gm)) < EVNTS$LOC[i] & as.numeric(row.names(gm)) > EVNTS$LOC[i-1], j] <- 
+						ifelse(length(mntn[mntn < EVNTS$LOC[i] & mntn > EVNTS$LOC[i-1]]) > 0, 1, 0)
+				}else{
+				}
+				if(EVNTS$TYP[i+1] == "QRTR"){
+					gm[as.numeric(row.names(gm)) > EVNTS$LOC[i] & as.numeric(row.names(gm)) < EVNTS$LOC[i+1], j] <- 
+						ifelse(length(mntn[mntn > EVNTS$LOC[i] & mntn < EVNTS$LOC[i+1]]) > 0, 1, 0)
+				}else{
+				}				
+			}
+		}
+		if(length(ejct) > 0){
+			gm[as.numeric(row.names(gm)) > ejct[1], j] <- 0
+		}else{
+		}		
+	}
+
+gm <- subset(gm, !(as.numeric(row.names(gm)) %in% QTR))
+row.names(gm) <- 1:nrow(gm)
+for(j in 4:ncol(gm)){
+	gm[,j] <- ifelse(gm[,j] == 1, colnames(gm)[j], NA)
+}
+
+######  Building final dataset
+GM <- data.frame(gm[1:3])
+for(i in 1:nrow(gm)){
+	AWAY <- c(gm[i, (1:nrow(subset(players, HOME == 0)))+3][!is.na(gm[i, (1:nrow(subset(players, HOME == 0)))+3])])	
+	HOME <- c(gm[i, (nrow(subset(players, HOME == 0))+4):ncol(gm)][!is.na(gm[i, (nrow(subset(players, HOME == 0))+4):ncol(gm)])])
+	GM$AWAY_LINEUP[i] <- paste(c(AWAY[1], AWAY[2], AWAY[3], AWAY[4], AWAY[5]), collapse = " + ")	
+	GM$HOME_LINEUP[i] <- paste(c(HOME[1], HOME[2], HOME[3], HOME[4], HOME[5]), collapse = " + ")
+}
+
+for(i in 1:nrow(GM)){
+	GM$X2P.a[i] <-  ifelse(length(grep("(?=.*makes)(?!.*3-pt)(?!.*free throw)", GM[i,1], ignore.case=T, perl=T)) > 0, 1, 0)
+	GM$X2PA.a[i] <- ifelse(length(grep("(?=.*makes|misses)(?!.*3-pt)(?!.*free throw)", GM[i,1], ignore.case=T, perl=T)) > 0, 1, 0)
+	GM$X3P.a[i] <- ifelse(length(grep("(?=.*makes)(?=.*3-pt)", GM[i,1], ignore.case=T, perl=T)) > 0, 1, 0)
+	GM$X3PA.a[i] <- ifelse(length(grep("3-pt", GM[i,1], ignore.case=T, perl=T)) > 0, 1, 0)
+	GM$FT.a[i] <-  ifelse(length(grep("(?=.*makes)(?=.*free throw)", GM[i,1], ignore.case=T, perl=T)) > 0, 1, 0)
+	GM$FTA.a[i] <- ifelse(length(grep("free throw", GM[i,1], ignore.case=T)) > 0, 1, 0)	
+	GM$DRB.a[i] <- ifelse(length(grep("(?=.*defensive)(?=.*rebound)", GM[i,1], ignore.case=T, perl=T)) > 0, 1, 0)
+	GM$ORB.a[i] <- ifelse(length(grep("(?=.*offensive)(?=.*rebound)", GM[i,1], ignore.case=T, perl=T)) > 0
+				       & length(grep("1 of 2|1 of 3|2 of 3", GM[i-1,1], ignore.case=T, perl=T)) == 0, 1, 0)
+	GM$TOV.a[i] <- ifelse(length(grep("turnover", GM[i,1], ignore.case=T)) > 0, 1, 0)		
+	GM$POSS.a[i] <- (ifelse(length(grep("free throw 1 of 1|free throw 2 of 2|free throw 3 of 3", GM[i,1], ignore.case=T)) > 0, 1, 0) + GM$X2PA.a[i] + GM$X3PA.a[i] + GM$TOV.a[i] - GM$ORB.a[i])
+	GM$PTS.a[i] <- ifelse(length(grep("\\+1", GM[i,1], ignore.case=T)) > 0, 1, 0)
+	GM$PTS.a[i] <- ifelse(length(grep("\\+2", GM[i,1], ignore.case=T)) > 0, 2, GM$PTS.a[i])
+	GM$PTS.a[i] <- ifelse(length(grep("\\+3", GM[i,1], ignore.case=T)) > 0, 3, GM$PTS.a[i])	
+
+	GM$X2P.h[i] <-  ifelse(length(grep("(?=.*makes)(?!.*3-pt)(?!.*free throw)", GM[i,2], ignore.case=T, perl=T)) > 0, 1, 0)
+	GM$X2PA.h[i] <- ifelse(length(grep("(?=.*makes|misses)(?!.*3-pt)(?!.*free throw)", GM[i,2], ignore.case=T, perl=T)) > 0, 1, 0)
+	GM$X3P.h[i] <- ifelse(length(grep("(?=.*makes)(?=.*3-pt)", GM[i,2], ignore.case=T, perl=T)) > 0, 1, 0)
+	GM$X3PA.h[i] <- ifelse(length(grep("3-pt", GM[i,2], ignore.case=T, perl=T)) > 0, 1, 0)
+	GM$FT.h[i] <-  ifelse(length(grep("(?=.*makes)(?=.*free throw)", GM[i,2], ignore.case=T, perl=T)) > 0, 1, 0)
+	GM$FTA.h[i] <- ifelse(length(grep("free throw", GM[i,2], ignore.case=T)) > 0, 1, 0)	
+	GM$DRB.h[i] <- ifelse(length(grep("(?=.*defensive)(?=.*rebound)", GM[i,2], ignore.case=T, perl=T)) > 0, 1, 0)
+	GM$ORB.h[i] <- ifelse(length(grep("(?=.*offensive)(?=.*rebound)", GM[i,2], ignore.case=T, perl=T)) > 0
+				       & length(grep("1 of 2|1 of 3|2 of 3", GM[i-1,2], ignore.case=T, perl=T)) == 0, 1, 0)
+	GM$TOV.h[i] <- ifelse(length(grep("turnover", GM[i,2], ignore.case=T)) > 0, 1, 0)		
+	GM$POSS.h[i] <- (ifelse(length(grep("free throw 1 of 1|free throw 2 of 2|free throw 3 of 3", GM[i,2], ignore.case=T)) > 0, 1, 0) + GM$X2PA.h[i] + GM$X3PA.h[i] + GM$TOV.h[i] - GM$ORB.h[i])
+	GM$PTS.h[i] <- ifelse(length(grep("\\+1", GM[i,2], ignore.case=T)) > 0, 1, 0)
+	GM$PTS.h[i] <- ifelse(length(grep("\\+2", GM[i,2], ignore.case=T)) > 0, 2, GM$PTS.h[i])
+	GM$PTS.h[i] <- ifelse(length(grep("\\+3", GM[i,2], ignore.case=T)) > 0, 3, GM$PTS.h[i])		
+}
+
+	GM <- GM[-c(1:3)]
+	GM <- aggregate(. ~ AWAY_LINEUP + HOME_LINEUP, data = GM, sum)
+
+
+
+#############  PULL IT ALL TOGETHER AND COLLAPSE STINTS ####################
+
+coly <- c("LINEUP", "CP_LINEUP", "X2P", "X2PA", "X3P", "X3PA", "FT", "FTA", "DRB", "ORB", "TOV", "POSS", "PTS", "X2P.cp", "X2PA.cp", "X3P.cp", "X3PA.cp", "FT.cp", "FTA.cp", "DRB.cp", "ORB.cp", "TOV.cp", "POSS.cp", "PTS.cp")
+AWAY <- cbind("YEAR"=as.numeric(GM.hld[1]), "MONTH"=as.numeric(GM.hld[2]), "DAY"=as.numeric(GM.hld[3]), "Tm"=tm1, "Opp"=tm2, "HOME" = 0, GM)
+	colnames(AWAY)[7:ncol(AWAY)] <- coly
+HOME <- cbind("YEAR"=as.numeric(GM.hld[1]), "MONTH"=as.numeric(GM.hld[2]), "DAY"=as.numeric(GM.hld[3]), "Tm"=tm2, "Opp"=tm1, "HOME" = 1, 
+	      GM[2], GM[1], GM[c(14:24)], GM[c(3:13)]) 
+	colnames(HOME)[7:ncol(HOME)] <- coly
+GAME <- rbind(AWAY, HOME)	
+
+LINEUP.DMP <- rbind(LINEUP.DMP, GAME)
+PLAYER.DMP <- subset(rbind(PLAYER.DMP, players[1:2]), !duplicated(ID))
+	}
+}
+
+
+write.csv(LINEUP.DMP, "LINEUP_DMP.csv", row.names = F)
+write.csv(PLAYER.DMP, "PLAYER_DMP.csv", row.names = F)
+
+
+
+
+
+##  1771
+## 5
+
+
+
+
+
+
+
+		LUP_RPM$EFG.dif <- LUP_RPM$EFG_O - LUP_RPM$EFG_D
+		LUP_RPM$TOV.dif <- LUP_RPM$TOV_O - LUP_RPM$TOV_D
+		LUP_RPM$REB.dif <- LUP_RPM$REB_O - (1 - LUP_RPM$REB_D)
+		LUP_RPM$FT.dif <- LUP_RPM$FT_O - LUP_RPM$FT_D
+
+		LUP_RPM$efg.OD <- LUP_RPM$EFG_O + LUP_RPM$EFG_D
+		LUP_RPM$tov.OD <- LUP_RPM$TOV_O + LUP_RPM$TOV_D
+		lLUP_RPMnp$reb.OD <- LUP_RPM$REB_O + (1 - LUP_RPM$REB_D)
+		LUP_RPM$ft.OD <- LUP_RPM$FT_O + LUP_RPM$FT_D
+
+
+
+
+AWAY <- data.frame(TM1.gm$AWAY.lnp, TM2.gm$HOME.lnp, TM1.gm[,9:(ncol(TM1.gm)-1)], TM2.gm[,9:(ncol(TM2.gm)-1)])
+	colnames(AWAY)[1:2] <- c("LINEUP", "CP_LINEUP")
+	AWAY <- aggregate(. ~ LINEUP + CP_LINEUP, data = AWAY, sum)
+	AWAY <- data.frame("YEAR"=as.numeric(GM.hld[1]), "MONTH"=as.numeric(GM.hld[2]), "DAY"=as.numeric(GM.hld[3]), 
+				  "Tm"=teams[1], "Opp"=teams[2], "HOME" = 0, AWAY)
+
+HOME <- data.frame(TM2.gm$HOME.lnp, TM1.gm$AWAY.lnp, TM2.gm[,9:(ncol(TM2.gm)-1)], TM1.gm[,9:(ncol(TM1.gm)-1)])
+	colnames(HOME)[1:2] <- c("LINEUP", "CP_LINEUP")
+	HOME <- aggregate(.~ LINEUP + CP_LINEUP, data = HOME, sum)
+	HOME <- data.frame("YEAR"=as.numeric(GM.hld[1]), "MONTH"=as.numeric(GM.hld[2]), "DAY"=as.numeric(GM.hld[3]), 
+				  "Tm"=teams[2], "Opp"=teams[1], "HOME" = 1, HOME)
+
+GAME <- rbind(AWAY, HOME)
+
+# Weights...
+	#O
+GAME$FGA_O <- GAME$X2PA + GAME$X3PA
+GAME$POSS.to_O <- GAME$POSS + GAME$ORB
+GAME$RB.chance_O <- GAME$ORB + GAME$DRB.1
+	#D
+GAME$FGA_D <- GAME$X2PA.1 + GAME$X3PA.1
+GAME$POSS.to_D <- GAME$POSS.1 + GAME$ORB.1
+GAME$RB.chance_D <- GAME$ORB.1 + GAME$DRB
+
+# DVs
+	#O
+GAME$EFG_O <- ifelse(GAME$FGA_O > 0, (GAME$X2P + GAME$X3P*1.5)/GAME$FGA_O, 0) # Weight by FGA in final analysis.
+GAME$TOV_O <- ifelse(GAME$POSS.to_O > 0, GAME$TOV/GAME$POSS.to_O, 0) # Weight by TO-adjusted Poss in final analysis.
+GAME$REB_O <- ifelse(GAME$RB.chance_O > 0, GAME$ORB/GAME$RB.chance_O, 0) # (OUTPUT$ORB + OUTPUT$DRB.1) as weight
+GAME$FT_O <- ifelse(GAME$FGA_O > 0, GAME$FT/GAME$FGA_O, 0) # Weight by FGA in final analysis. 
+	#D
+GAME$EFG_D <- ifelse(GAME$FGA_D > 0, (GAME$X2P.1 + GAME$X3P.1*1.5)/GAME$FGA_D, 0) # Weight by FGA in final analysis.
+GAME$TOV_D <- ifelse(GAME$POSS.to_D > 0, GAME$TOV.1/GAME$POSS.to_D, 0) # Weight by TO-adjusted Poss in final analysis.
+GAME$REB_D <- ifelse(GAME$RB.chance_D > 0, GAME$DRB/GAME$RB.chance_D, 0) # (OUTPUT$ORB + OUTPUT$DRB.1) as weight
+GAME$FT_D <- ifelse(GAME$FGA_D > 0, GAME$FT.1/GAME$FGA_D, 0) # Weight by FGA in final analysis. 
+
+#  Null out the basic stats...
+GAME <- GAME[-c(9:17, 19:27)]
+GAME <- subset(GAME, POSS > 0 | POSS.1 >0)
+
+
+
+# restart on  2818
+#   13
+
+
+
+##   Problem in 351 5.
+##   Problem in 518 12.
+##   Problem in 2223 11.
+
+
+
+
+
+write.csv(LINEUP.DMP, "LINEUP_DMP.csv", row.names = F)
+write.csv(PLAYER.DMP, "PLAYER_DMP.csv", row.names = F)
+
+
+
+# PREP FOR RAPM ANALYSIS
+
+LINEUP.DMP <- LINEUP.DMP[!duplicated(LINEUP.DMP), ]
+LINEUP.DMP$Season <- ifelse(LINEUP.DMP$MONTH > 7, LINEUP.DMP$YEAR + 1, LINEUP.DMP$YEAR)
+
+PLAYER.DMP <- na.omit(PLAYER.DMP)
+#dummies <- as.character(PLAYER.DMP$ID)
+
+LUP_RPM <- LINEUP.DMP
+#LUP_RPM[dummies] <- NA
+		LUP_RPM$EFG.dif <- LUP_RPM$EFG_O - LUP_RPM$EFG_D
+		LUP_RPM$TOV.dif <- LUP_RPM$TOV_O - LUP_RPM$TOV_D
+		LUP_RPM$REB.dif <- LUP_RPM$REB_O - (1 - LUP_RPM$REB_D)
+		LUP_RPM$FT.dif <- LUP_RPM$FT_O - LUP_RPM$FT_D
+
+		LUP_RPM$efg.OD <- LUP_RPM$EFG_O + LUP_RPM$EFG_D
+		LUP_RPM$tov.OD <- LUP_RPM$TOV_O + LUP_RPM$TOV_D
+		lLUP_RPMnp$reb.OD <- LUP_RPM$REB_O + (1 - LUP_RPM$REB_D)
+		LUP_RPM$ft.OD <- LUP_RPM$FT_O + LUP_RPM$FT_D
+write.csv(LUP_RPM, "LUP_RPM.csv", row.names = F)
+
+
+####  PLAYERS ADD IN STATS!!!! 
+
+plr <- PLAYER.DMP
+
+TOT <- data.frame("ID"=NA, "Season"=NA, "Age"=NA, "Tm"=NA, "Lg"=NA, "Pos"=NA, "G"=NA, "GS"=NA, "MP"=NA, "FG"=NA, "FGA"=NA, "FG%"=NA, "3P"=NA, "3PA"=NA, "3P%"=NA, "2P"=NA,"2PA"=NA, "2P%"=NA, "eFG%"=NA, "FT"=NA, "FTA"=NA, "FT%"=NA, "ORB"=NA, "DRB"=NA, "TRB"=NA, "AST"=NA, "STL"=NA, "BLK"=NA, "TOV"=NA, "PF"=NA, "PTS"=NA)
+ADV <- data.frame("ID"=NA, "Season"=NA, "Tm"=NA, "ORB%"=NA, "DRB%"=NA, "TRB%"=NA, "AST%"=NA, "STL%"=NA, "BLK%"=NA, "TOV%"=NA, "USG%"=NA)
+SHT <- data.frame("ID"=NA, "Season"=NA, "Tm"=NA, "Dist."=NA, "per2P"=NA, "per0-3"=NA, "per3-10"=NA, "per10-16"=NA, "per16-23"=NA, "per3P"=NA, "eff2P"=NA, "eff0-3"=NA, "eff3-10"=NA, "eff10-16"=NA, "eff16-23"=NA, "eff3P"=NA, "Asd%2"=NA, "perDNK"=NA, "DNK"=NA, "Asd%2"=NA, "perCRNR"=NA, "CRNR%"=NA, "HEAVEa"=NA, "HEAVEm"=NA)
+	
+for(i in 1:nrow(plr)){
+	plr.url <- paste0("http://www.basketball-reference.com/players/", substring(plr[i,3], 1, 1), "/", substring(plr[i,3], 2), ".html")
+		hld <- GET(plr.url)
+		hld <- readHTMLTable(rawToChar(hld$content), stringsAsFactors = F)
+		if(length(hld) > 1){
+			tot <- as.data.frame(hld[["totals"]])
+				tot <- data.frame("ID"=plr[i,3], tot)
+			adv <- as.data.frame(hld[["advanced"]])[c(1,3,12:19)]
+				adv <- data.frame("ID"=plr[i,3], adv)	
+			sht <- as.data.frame(hld[["shooting"]])[-c(2, 4:8)]
+				sht <- data.frame("ID"=plr[i,3], sht)			
+				colnames(sht) <- colnames(SHT)
+			TOT <- rbind(TOT, tot) 
+			ADV <- rbind(ADV, adv) 
+			SHT <- rbind(SHT, sht)
+		}else{
+		}
+}     
+STATS <- merge(TOT, ADV, by = c("ID", "Season", "Tm"), all.x = T)
+STATS <- merge(STATS, SHT, by = c("ID", "Season", "Tm"), all.x = T)
+STATS$Season <- as.numeric(substr(STATS$Season,start=1,stop=4)) + 1
+tst <- merge(STATS, plr, by = "ID", all.x = T)
+tst <- subset(tst, Tm != "TOT" & !is.na(Lg))
+
+write.csv(tst, "PLR_RPM.csv", row.names = FALSE)
+
+#1176
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/200111010ATL.html"){
+		pbp <- pbp[-c(412:413),]
+	}else{
+	}	
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/200312210DET.html"){
+		pbp$Utah[101] <- NA
+	}else{
+	}
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/200203260IND.html"){
+		pbp <- pbp[-c(458:459, 467:468),]
+	}else{
+	}
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/200511130BOS.html"){
+		pbp <- pbp[-c(228:229),]
+	}else{
+	}	
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/200904150MIA.html"){
+		pbp <- pbp[-c(111),]
+	}else{
+	}	
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/200911110NJN.html"){
+		pbp <- pbp[-c(469:470),]
+	}else{
+	}
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/201004130PHO.html"){
+		pbp$Denver[148] <- gsub("A. Afflalo", "C. Anthony", pbp$Denver[148])
+		pbp <- pbp[-c(150:151),]
+	}else{
+	}
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/201012230SAC.html"){
+		pbp <- pbp[-c(507:508),]
+	}else{
+	}	
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/201303080DET.html"){
+		pbp <- pbp[-c(499:500, 512:513),]
+	}else{
+	}	
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/201304100CLE.html"){
+		pbp <- pbp[-c(490:491, 503:504),]
+	}else{
+	}	
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/201311270DAL.html"){
+		pbp <- pbp[-c(422:423),]
+	}else{
+	}	
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/201312040NOP.html"){
+		pbp$Dallas[112] <- gsub("G. Mekel", "", pbp$Dallas[112])
+	}else{
+	}
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/201312250SAS.html"){
+		pbp <- pbp[-c(102:103),]
+	}else{
+	}	
+	if(pbp.url == "http://www.basketball-reference.com//boxscores/pbp/201404210OKC.html"){
+		pbp <- pbp[-c(507:508,513:514),]
+	}else{
+	}
+	
+# VERY SPECIFIC FIXES FOR BAD PBP
+	if(n == 36 & g == 6){
+	       tm1.gm[199, 1] <- gsub("C. Alexander", "H. Davis", tm1.gm[199, 1])	
+	       tm1.gm[200, 1] <- gsub("H. Davis", "C. Alexander", tm1.gm[200, 1])
+	}else{
+	}
+		

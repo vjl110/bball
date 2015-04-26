@@ -1,0 +1,511 @@
+setwd("~/GitHub/bball")
+
+library(glmnet) #load glmnet package
+
+###
+###
+
+DMP <- list()
+for(s in 2001:2015){
+	#####  Basic pre-pred that applies to all 4 factors
+	lnp.yr <- subset(read.csv("LUP_RPM.csv", stringsAsFactors=FALSE), (Season == s | Season == s-1) & !is.na(EFG.df) & !is.na(FT.df) & !is.na(TOV.df) & !is.na(REB.df) & POSS > 0)
+	plr.yr <- subset(read.csv("PLR_RPM.csv", stringsAsFactors=FALSE), Season == s | Season == s-1)
+		plr.yr <- plr.yr[,c(1:2, ncol(plr.yr))]
+			plr.yr <- subset(plr.yr, !duplicated(ID))
+	lnp.yr[plr.yr$ID] <- 0
+	row.names(lnp.yr) <- 1:nrow(lnp.yr)
+	for(j in 23:ncol(lnp.yr)){
+		ego <- grep(colnames(lnp.yr)[j], lnp.yr$LINEUP)
+		alt <- grep(colnames(lnp.yr)[j], lnp.yr$CP_LINEUP)
+		lnp.yr[row.names(lnp.yr) %in% ego, j] <- 1
+		lnp.yr[row.names(lnp.yr) %in% alt, j] <- -1
+	}
+	
+	data <- data.matrix(lnp.yr[c(6,23:ncol(lnp.yr))]) #turn the data frame (which is now just 1s, -1s, and 0s) into a matrix
+	X <- sparse.model.matrix(~data[,1]-1)
+	for (i in 2:ncol(data)) {
+		    coluna <- sparse.model.matrix(~data[,i]-1)
+ 			 X <- cBind(X, coluna)
+	}
+	X2 <- X
+	X2[X2 == -1] <- 1
+
+	#####  Begin modeling for each factor
+	DV_DFs <- list(lnp.yr$EFG.df, lnp.yr$FT.df, lnp.yr$TOV.df, lnp.yr$REB.df, lnp.yr$MRG.df/lnp.yr$POSS)
+	DV_ODs <- list(lnp.yr$EFG.od, lnp.yr$FT.od, lnp.yr$TOV.od, lnp.yr$REB.od, lnp.yr$MRG.od/lnp.yr$POSS)
+	WGTs <- list(lnp.yr$FGA, lnp.yr$FGA, lnp.yr$POSS.to, lnp.yr$RB.chance, lnp.yr$POSS)
+
+	coef_hld <- list()
+	for(i in 1:length(DV_DFs)){
+	dv_df <- DV_DFs[[i]]
+	dv_od <- DV_ODs[[i]]
+	wgt <- WGTs[[i]]
+	lambda <- cv.glmnet(X, dv_df, weights=wgt) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
+	lambda.1se <- lambda$lambda.1se #store the lambda value that gives the smallest error in an object called lambda.min
+	ridge <- glmnet(X, dv_df, family=c("gaussian"), wgt, alpha=0, lambda=lambda.1se) #
+		op <- coef(ridge ,s=lambda.1se) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
+			op <- as.data.frame(as.matrix(op))
+				op$ID <- c("INT", colnames(data))
+					colnames(op) <- c("df", "ID")
+						row.names(op) <- 1:nrow(op)
+							op_df <- na.omit(merge(op, plr.yr, by = "ID", all.x=T))
+
+	lambda <- cv.glmnet(X2, dv_od, weights=wgt) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
+	lambda.1se <- lambda$lambda.1se #store the lambda value that gives the smallest error in an object called lambda.min
+	ridge <- glmnet(X2, dv_od, family=c("gaussian"), wgt, alpha=0, lambda=lambda.1se) #
+		op <- coef(ridge ,s=lambda.1se) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
+			op <- as.data.frame(as.matrix(op))
+				op$ID <- c("INT", colnames(data))
+					colnames(op) <- c("od", "ID")
+						row.names(op) <- 1:nrow(op)
+							op_od <- na.omit(merge(op, plr.yr, by = "ID", all.x=T))
+	op <- merge(op_df[-3], op_od[-3], by = c( "ID", "Name"))
+	coef_hld[[i]] <- op
+	}
+	output <- data.frame("Name" = coef_hld[[1]]$Name,
+			     "EFG.O"=round(scale((coef_hld[[1]]$df + coef_hld[[1]]$od)/2), 2), 
+			     "EFG.D"=-round(scale((coef_hld[[1]]$od - coef_hld[[1]]$df)/2), 2), 
+			     "FT.O"=round(scale((coef_hld[[2]]$df + coef_hld[[2]]$od)/2), 2), 
+			     "FT.D"=-round(scale((coef_hld[[2]]$od - coef_hld[[2]]$df)/2), 2),
+			     "TOV.O"=-round(scale((coef_hld[[3]]$df + coef_hld[[3]]$od)/2), 2), 
+			     "TOV.D"=round(scale((coef_hld[[3]]$od - coef_hld[[3]]$df)/2), 2), 
+			     "REB.O"=round(scale((coef_hld[[4]]$df + coef_hld[[4]]$od)/2), 2), 
+			     "REB.D"=-round(scale((coef_hld[[4]]$od - coef_hld[[4]]$df)/2), 2), 
+			     "MRG.O"=round(scale((coef_hld[[5]]$df + coef_hld[[5]]$od)/2), 2), 
+			     "MRG.D"=-round(scale((coef_hld[[5]]$od - coef_hld[[5]]$df)/2), 2))
+		plr.set <- subset(read.csv("PLR_RPM.csv", stringsAsFactors=FALSE), Season == 2015 | Season == 2014)[c(9, 61)]
+		plr.set <- aggregate( . ~ Name, data = plr.set, sum)
+	output <- na.omit(merge(plr.set, output, by = "Name", all.x = T))
+	output <- subset(output, !duplicated(Name))
+	output$Season <- s
+	DMP[[s - 2000]] <- output
+}
+
+
+
+
+NPI <- do.call("rbind", DMP)
+write.csv(NPI, "NPI.csv", row.names = F)
+
+
+
+NPI <- read.csv("NPI.csv")
+
+
+for(i in length(DMP)){
+	DMP[[i]]$Season <- 2000 + i
+}	
+
+
+
+NPI <- do.call("rbind", DMP)
+write.csv(NPI, "NPI.csv", row.names = F)
+
+	op <- merge(op, subset(read.csv("PLR_RPM.csv", stringsAsFactors=FALSE), Season == 2015), by = c( "ID", "Name"), all.x = T)[c(2:4, 12)]
+	op <- subset(op, !duplicated(Name))
+	op$O <- round((op$df + op$od)/2*100, 1)
+	op$D <- -round((op$od - op$df)/2*100, 1)
+	op$df <- round(op$df, 3)
+	op$od <- round(op$od, 3)
+
+
+### Age curve
+crv <- merge(NPI, read.csv("PLR_RPM.csv", stringsAsFactors=FALSE), by = c("ID", "Name.full", "Season"), all.x = T)[c(1:5, 7, 12)]	
+crv.age <- as.data.frame(matrix(ncol = 3, nrow = 35))
+colnames(crv.age) <- c("Age", colnames(NPI)[4:5])
+crv.age$Age <- 16:50
+for(i in 1:nrow(crv.age)){
+	crv.age$df[i] <- mean(crv$df[crv$Age == crv.age$Age[i] & crv$MP >= 96], na.rm=T)
+	crv.age$od[i] <- mean(crv$df[crv$Age == crv.age$Age[i] & crv$MP >= 96], na.rm=T)	
+}
+df_mod <- loess(crv.age$df ~ crv.age$Age, span = .9)
+od_mod <- loess(crv.age$od ~ crv.age$Age, span = .9)
+crv.age$df <-  predict(df_mod, newdata = 16:50)
+crv.age$od <-  predict(od_mod, newdata = 16:50)
+############
+
+
+#########
+rm(NPI)
+rm(crv)
+
+DMP <- list()
+write.csv(DMP, "ROLO.csv", row.names = F)
+
+for(s in 2001:2015){
+	lnp.yr <- subset(read.csv("LUP_RPM.csv", stringsAsFactors=FALSE), Season == s)
+	plr.yr <- subset(read.csv("PLR_RPM.csv", stringsAsFactors=FALSE), Season == s)
+		plr.yr <- plr.yr[,c(1:2, 4, ncol(plr.yr)-2)]
+			plr.yr <- subset(plr.yr, !duplicated(ID))
+	lnp.yr[plr.yr$ID] <- 0
+	row.names(lnp.yr) <- 1:nrow(lnp.yr)
+	for(j in 34:ncol(lnp.yr)){
+		ego <- grep(colnames(lnp.yr)[j], lnp.yr$LINEUP)
+		alt <- grep(colnames(lnp.yr)[j], lnp.yr$CP_LINEUP)
+		lnp.yr[row.names(lnp.yr) %in% ego, j] <- 1
+		lnp.yr[row.names(lnp.yr) %in% alt, j] <- -1
+	}
+	data <- data.matrix(lnp.yr[c(6,34:ncol(lnp.yr))]) #turn the data frame (which is now just 1s, -1s, and 0s) into a matrix
+	X <- sparse.model.matrix(~data[,1]-1)
+	for (i in 2:ncol(data)) {
+		    coluna <- sparse.model.matrix(~data[,i]-1)
+ 			 X <- cBind(X, coluna)
+	}
+	dv_df <- lnp.yr$EFG.dif
+	dv_od <- lnp.yr$efg.OD
+	wgt <- lnp.yr$FGA_O
+	
+	NPI.hld <- read.csv("NPI.csv", stringsAsFactors=FALSE)
+		NPI.hld$Season <- NPI.hld$Season + 1
+	plr.yr <- merge(plr.yr, NPI.hld, by = c("ID", "Name.full", "Season"), all.x = T)
+		rm(NPI.hld)
+	row.names(plr.yr) <- 1:nrow(plr.yr)
+	for(i in as.numeric(row.names(plr.yr[is.na(plr.yr$df),]))){
+		plr.yr$df[i] <- crv.age$df[crv.age$Age == plr.yr$Age[i]]
+	}
+	for(i in as.numeric(row.names(plr.yr[is.na(plr.yr$od),]))){
+		plr.yr$od[i] <- crv.age$od[crv.age$Age == plr.yr$Age[i]]
+	}
+
+	os_df <- lnp.yr[34:ncol(lnp.yr)]
+	os_od <- lnp.yr[34:ncol(lnp.yr)]
+	
+	for(j in 1:ncol(os_df)){
+		os_df[,j] <- os_df[,j]*plr.yr$df[j]
+		os_od[,j] <- os_od[,j]*plr.yr$od[j]		
+	}
+	os_df <- rowSums(os_df, na.rm=T)
+	os_od <- rowSums(os_od, na.rm=T)
+
+	lambda <- cv.glmnet(X, dv_df, weights=wgt, offset = os_df, nfolds=5) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
+	lambda.min <- lambda$lambda.min #store the lambda value that gives the smallest error in an object called lambda.min
+	ridge <- glmnet(X, dv_df, family=c("gaussian"), wgt, offset = os_df, alpha=0, lambda=lambda.min) #
+		op <- coef(ridge ,s=lambda.min) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
+			op <- as.data.frame(as.matrix(op))
+				op$ID <- c("INT", colnames(data))
+					colnames(op) <- c("df", "ID")
+						row.names(op) <- 1:nrow(op)
+							op_df <- na.omit(merge(op, plr.yr[1:3], by = "ID", all.x=T))
+	lambda <- cv.glmnet(X, dv_od, weights=wgt, offset = os_od, nfolds=5) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
+	lambda.min <- lambda$lambda.min #store the lambda value that gives the smallest error in an object called lambda.min
+	ridge <- glmnet(X, dv_od, family=c("gaussian"), wgt, offset = os_od, alpha=0, lambda=lambda.min) #
+		op <- coef(ridge ,s=lambda.min) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
+			op <- as.data.frame(as.matrix(op))
+				op$ID <- c("INT", colnames(data))
+					colnames(op) <- c("od", "ID")
+						row.names(op) <- 1:nrow(op)
+							op_od <- na.omit(merge(op, plr.yr[1:3], by = "ID", all.x=T))
+	op <- merge(op_df, op_od, by = c( "ID", "Season", "Name.full"))
+	DMP[[s - 2000]] <- op
+}
+ROLO <- do.call("rbind", DMP)
+
+write.csv(ROLO, "ROLO.csv", row.names = F)
+
+
+
+
+
+
+
+
+npi <- data.frame(NPI[,1:5])
+	npi$O <- round(scale((npi$df + npi$od)/2), 2)
+	npi$D <- -round(scale((npi$od - npi$df)/2), 2)
+npi <- merge(npi, read.csv("PLR_RPM.csv", stringsAsFactors=FALSE)[c(1:2, 9)], by = c("ID", "Season"), all.x = T) 
+npi <- npi[order(npi$O, decreasing = T), ]
+	
+rolo <- data.frame(ROLO[,1:5])
+	rolo$O <- round(scale((rolo$df + rolo$od)/2), 2)
+	rolo$D <- -round(scale((rolo$od - rolo$df)/2), 2)
+rolo <- merge(rolo, read.csv("PLR_RPM.csv", stringsAsFactors=FALSE)[c(1:2, 9)], by = c("ID", "Season"), all.x = T) 
+rolo <- rolo[order(rolo$D, decreasing = T), ]
+	
+
+
+
+
+
+
+
+
+
+
+
+
+	DVs <- data.frame("EFG_dif" = lnp.yr$EFG.dif, "REB_dif" = lnp.yr$REB.dif, "TOV_dif" = lnp.yr$TOV.dif, "FT_dif" = lnp.yr$FT.dif)
+	WGTs <- data.frame("FGA" = lnp.yr$FGA_O + lnp.yr$FGA_D, "RB.chance" = lnp.yr$RB.chance_O + lnp.yr$RB.chance_D, "POSS.to" = lnp.yr$POSS.to_O + lnp.yr$POSS.to_D, "FGA" = lnp.yr$FGA_O + lnp.yr$FGA_D) 
+	OUTPUTS <- list()
+
+
+
+
+	for(j in 1:ncol(DVs)){
+		lambda <- cv.glmnet(x, DVs[,j], weights=WGTs[,j], nfolds=5) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
+		lambda.min <- lambda$lambda.min #store the lambda value that gives the smallest error in an object called lambda.min
+
+		ridge <- glmnet(x, DVs[,j], family=c("gaussian"), WGTs[,j], alpha=0, lambda=lambda.min) #
+
+		op <- coef(ridge ,s=lambda.min) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
+		op <- as.data.frame(as.matrix(op))
+		op$ID <- row.names(op)
+		colnames(op) <- c("val", "ID")
+		row.names(op) <- 1:nrow(op)
+		op <- merge(op, plr.yr, by = "ID", all.x=T)
+		OUTPUTS[[j]] <- op
+	}
+	colnames(OUTPUTS[[1]])[2] <- "EFG_dif"
+	colnames(OUTPUTS[[2]])[2] <- "REB_dif"
+	colnames(OUTPUTS[[3]])[2] <- "TOV_dif"
+	colnames(OUTPUTS[[4]])[2] <- "FT_dif"
+
+	MARGIN <- merge(OUTPUTS[[1]], OUTPUTS[[2]], by = c("ID", "Season", "Name.full"))	
+	MARGIN <- merge(MARGIN, OUTPUTS[[3]], by = c("ID", "Season", "Name.full"))	
+	MARGIN <- merge(MARGIN, OUTPUTS[[4]], by = c("ID", "Season", "Name.full"))	
+	
+	mrgset <- plr[,c(1:2,9, 61)]
+	mrgset <- subset(mrgset, Season == s)
+	mrgset <- aggregate( . ~ ID + Season + Name.full, data = mrgset, sum)
+
+	MARGIN <- merge(MARGIN, mrgset, by = c("ID", "Season", "Name.full"))
+
+	# Now calculate Diff O/D to parse O and D
+
+	for(j in 34:ncol(lnp.yr)){
+		alt <- grep(colnames(lnp.yr)[j], lnp.yr$CP_LINEUP)
+		lnp.yr[row.names(lnp.yr) %in% alt, j] <- 1
+	}
+	
+	x <- data.matrix(lnp.yr[c(6,34:ncol(lnp.yr))]) #turn the data frame (which is now just 1s, -1s, and 0s) into a matrix
+	DVs <- data.frame("efg_OD" = lnp.yr$efg.OD, "reb_OD" = lnp.yr$reb.OD, "tov_OD" = lnp.yr$tov.OD, "ft_OD" = lnp.yr$ft.OD)
+	WGTs <- data.frame("FGA" = lnp.yr$FGA_O + lnp.yr$FGA_D, "RB.chance" = lnp.yr$RB.chance_O + lnp.yr$RB.chance_D, "POSS.to" = lnp.yr$POSS.to_O + lnp.yr$POSS.to_D, "FGA" = lnp.yr$FGA_O + lnp.yr$FGA_D) 
+	OUTPUTS <- list()
+	for(j in 1:ncol(DVs)){
+		lambda <- cv.glmnet(x, DVs[,j], weights=WGTs[,j], nfolds=5) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
+		lambda.min <- lambda$lambda.min #store the lambda value that gives the smallest error in an object called lambda.min
+
+		ridge <- glmnet(x, DVs[,j], family=c("gaussian"), WGTs[,j], alpha=0, lambda=lambda.min) #
+
+		op <- coef(ridge ,s=lambda.min) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
+		op <- as.data.frame(as.matrix(op))
+		op$ID <- row.names(op)
+		colnames(op) <- c("val", "ID")
+		row.names(op) <- 1:nrow(op)
+		op <- merge(op, plr.yr, by = "ID", all.x=T)
+		OUTPUTS[[j]] <- op
+	}
+	colnames(OUTPUTS[[1]])[2] <- "efg_OD"
+	colnames(OUTPUTS[[2]])[2] <- "reb_OD"
+	colnames(OUTPUTS[[3]])[2] <- "tov_OD"
+	colnames(OUTPUTS[[4]])[2] <- "ft_OD"
+
+	OvD <- merge(OUTPUTS[[1]], OUTPUTS[[2]], by = c("ID", "Season", "Name.full"))	
+	OvD <- merge(OvD, OUTPUTS[[3]], by = c("ID", "Season", "Name.full"))	
+	OvD <- merge(OvD, OUTPUTS[[4]], by = c("ID", "Season", "Name.full"))	
+	
+	mrgset <- plr[,c(1:2,9, 61)]
+	mrgset <- subset(mrgset, Season == s)
+	mrgset <- aggregate( . ~ ID + Season + Name.full, data = mrgset, sum)
+
+	OvD <- merge(OvD, mrgset, by = c("ID", "Season", "Name.full"))
+
+### SAVE OUT
+	MARGIN.DMP[[s-2000]] <- MARGIN
+	OvD.DMP[[s-2000]] <- OvD
+}
+
+	# Combine and calculate final values.
+	combo <- list()
+	for(i in 1:length(MARGIN.DMP)){
+		combo[[i]] <- merge(MARGIN.DMP[[i]], OvD.DMP[[i]], by = c("ID", "Season", "Name.full", "MP"))
+	}	
+	NPI.ffRPM <- rbind(combo[[1]], combo[[2]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[3]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[4]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[5]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[6]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[7]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[8]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[9]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[10]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[11]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[12]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[13]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[14]])
+	NPI.ffRPM <- rbind(NPI.ffRPM, combo[[15]])
+
+	write.csv(NPI.ffRPM, "npi_1se.csv", row.names = F)	
+
+
+tst <- merge(NPI, plr, by = c("ID", "Name.full", "Season", "MP"), all.x = T)	
+
+
+crv.age <- as.data.frame(matrix(ncol = 9, nrow = 35))
+colnames(crv.age) <- c("Age", colnames(NPI)[5:length(colnames(NPI))])
+crv.age$Age <- 16:50
+for(j in 2:ncol(crv.age)){
+	for(i in 1:nrow(crv.age)){
+		crv.age[i,j] <- weighted.mean(tst[tst$Age == crv.age$Age[i], j+3], tst[tst$Age == crv.age$Age[i], 3], na.rm=T)
+	}
+	crv.age[,j] <- lowess(x = crv.age[,1], y = crv.age[,j], f = 2/3, iter = 3, delta = 0.01 * diff(range(crv.age[,1])))$y	
+}
+
+
+
+
+MARGIN.DMP <- list()
+OvD.DMP <- list()
+
+for(s in 2001:2015){
+	lnp.yr <- subset(lnp, Season == s)
+	plr.yr <- subset(plr, Season == s)
+		plr.yr <- plr.yr[,c(1:2, ncol(plr.yr)-2)]
+			plr.yr <- subset(plr.yr, !duplicated(ID))
+	lnp.yr[plr.yr$ID] <- 0
+	row.names(lnp.yr) <- 1:nrow(lnp.yr)
+	for(j in 34:ncol(lnp.yr)){
+		ego <- grep(colnames(lnp.yr)[j], lnp.yr$LINEUP)
+		alt <- grep(colnames(lnp.yr)[j], lnp.yr$CP_LINEUP)
+		lnp.yr[row.names(lnp.yr) %in% ego, j] <- 1
+		lnp.yr[row.names(lnp.yr) %in% alt, j] <- -1
+	}
+
+	x <- data.matrix(lnp.yr[c(6,34:ncol(lnp.yr))]) #turn the data frame (which is now just 1s, -1s, and 0s) into a matrix
+	DVs <- data.frame("EFG_dif" = lnp.yr$EFG.dif, "REB_dif" = lnp.yr$REB.dif, "TOV_dif" = lnp.yr$TOV.dif, "FT_dif" = lnp.yr$FT.dif)
+	WGTs <- data.frame("FGA" = lnp.yr$FGA_O + lnp.yr$FGA_D, "RB.chance" = lnp.yr$RB.chance_O + lnp.yr$RB.chance_D, "POSS.to" = lnp.yr$POSS.to_O + lnp.yr$POSS.to_D, "FGA" = lnp.yr$FGA_O + lnp.yr$FGA_D) 
+	offset <- as.data.frame(matrix(nrow = nrow(plr.yr), ncol = 4))
+		colnames(offset) <- c("EFG_dif", "REB_dif", "TOV_dif", "FT_dif")
+	for(i in 1:nrow(offset)){
+		if(length(NPI$ID[NPI$Season == plr.yr$Season[i] - 1 & NPI$ID == plr.yr$ID[i]]) == 1){
+			offset[i,] <- NPI[NPI$Season == plr.yr$Season[i] - 1 & NPI$ID == plr.yr$ID[i], 5:8]
+		}else{
+			age <- plr$Age[plr$ID == plr.yr$ID[i] & plr$Season == plr.yr$Season[i]][1]
+	         offset[i,] <- 	as.numeric(crv.age[crv.age$Age == age, 2:5])
+		}
+	}
+
+	OUTPUTS <- list()
+	for(j in 1:ncol(DVs)){
+		os.hld <- lnp.yr[34:ncol(lnp.yr)]
+		for(g in 1:ncol(os.hld)){
+			os.hld[,g] <- os.hld[,g]*offset[g,j]
+		}
+		os <- data.matrix(os.hld)
+
+		lambda <- cv.glmnet(x, DVs[,j], weights=WGTs[,j], offset=os, nfolds=5) #find lambda.Determine how far towards 0 the coefficients shrunk
+		lambda.min <- lambda$lambda.min #store the lambda value that gives the smallest error in an object called lambda.min
+
+		ridge <- glmnet(x, DVs[,j], family=c("gaussian"), WGTs[,j], offset=os, alpha=0, lambda=lambda.min) #
+
+		op <- coef(ridge ,s=lambda.min) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
+		op <- as.data.frame(as.matrix(op))
+		op$ID <- row.names(op)
+		colnames(op) <- c("val", "ID")
+		row.names(op) <- 1:nrow(op)
+		op <- merge(op, plr.yr, by = "ID", all.x=T)
+		OUTPUTS[[j]] <- op
+	}
+	colnames(OUTPUTS[[1]])[2] <- "EFG_dif"
+	colnames(OUTPUTS[[2]])[2] <- "REB_dif"
+	colnames(OUTPUTS[[3]])[2] <- "TOV_dif"
+	colnames(OUTPUTS[[4]])[2] <- "FT_dif"
+
+	MARGIN <- merge(OUTPUTS[[1]], OUTPUTS[[2]], by = c("ID", "Season", "Name.full"))	
+	MARGIN <- merge(MARGIN, OUTPUTS[[3]], by = c("ID", "Season", "Name.full"))	
+	MARGIN <- merge(MARGIN, OUTPUTS[[4]], by = c("ID", "Season", "Name.full"))	
+	
+	mrgset <- plr[,c(1:2,9, 61)]
+	mrgset <- subset(mrgset, Season == s)
+	mrgset <- aggregate( . ~ ID + Season + Name.full, data = mrgset, sum)
+
+	MARGIN <- merge(MARGIN, mrgset, by = c("ID", "Season", "Name.full"))
+
+	# Now calculate Diff O/D to parse O and D
+
+	for(j in 34:ncol(lnp.yr)){
+		alt <- grep(colnames(lnp.yr)[j], lnp.yr$CP_LINEUP)
+		lnp.yr[row.names(lnp.yr) %in% alt, j] <- 1
+	}
+	
+	x <- data.matrix(lnp.yr[c(6,34:ncol(lnp.yr))]) #turn the data frame (which is now just 1s, -1s, and 0s) into a matrix
+	DVs <- data.frame("efg_OD" = lnp.yr$efg.OD, "reb_OD" = lnp.yr$reb.OD, "tov_OD" = lnp.yr$tov.OD, "ft_OD" = lnp.yr$ft.OD)
+	WGTs <- data.frame("FGA" = lnp.yr$FGA_O + lnp.yr$FGA_D, "RB.chance" = lnp.yr$RB.chance_O + lnp.yr$RB.chance_D, "POSS.to" = lnp.yr$POSS.to_O + lnp.yr$POSS.to_D, "FGA" = lnp.yr$FGA_O + lnp.yr$FGA_D) 
+	OUTPUTS <- list()
+	for(j in 1:ncol(DVs)){
+		lambda <- cv.glmnet(x, DVs[,j], weights=WGTs[,j], nfolds=5) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
+		lambda.min <- lambda$lambda.min #store the lambda value that gives the smallest error in an object called lambda.min
+
+		ridge <- glmnet(x, DVs[,j], family=c("gaussian"), WGTs[,j], alpha=0, lambda=lambda.min) #
+
+		op <- coef(ridge ,s=lambda.min) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
+		op <- as.data.frame(as.matrix(op))
+		op$ID <- row.names(op)
+		colnames(op) <- c("val", "ID")
+		row.names(op) <- 1:nrow(op)
+		op <- merge(op, plr.yr, by = "ID", all.x=T)
+		OUTPUTS[[j]] <- op
+	}
+	colnames(OUTPUTS[[1]])[2] <- "efg_OD"
+	colnames(OUTPUTS[[2]])[2] <- "reb_OD"
+	colnames(OUTPUTS[[3]])[2] <- "tov_OD"
+	colnames(OUTPUTS[[4]])[2] <- "ft_OD"
+
+	OvD <- merge(OUTPUTS[[1]], OUTPUTS[[2]], by = c("ID", "Season", "Name.full"))	
+	OvD <- merge(OvD, OUTPUTS[[3]], by = c("ID", "Season", "Name.full"))	
+	OvD <- merge(OvD, OUTPUTS[[4]], by = c("ID", "Season", "Name.full"))	
+	
+	mrgset <- plr[,c(1:2,9, 61)]
+	mrgset <- subset(mrgset, Season == s)
+	mrgset <- aggregate( . ~ ID + Season + Name.full, data = mrgset, sum)
+
+	OvD <- merge(OvD, mrgset, by = c("ID", "Season", "Name.full"))
+
+### SAVE OUT
+	MARGIN.DMP[[s-2000]] <- MARGIN
+	OvD.DMP[[s-2000]] <- OvD
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	ff15 <- data.frame(tst[,1:4], "EFG.O" = round(scale((tst$EFG_dif + tst$efg_OD)/2), 2), "EFG.D" = -round(scale((tst$efg_OD - tst$EFG_dif)/2), 2), "REB.O" = round(scale((tst$REB_dif + tst$reb_OD)/2), 2), "REB.D" = -round(scale((tst$reb_OD - tst$REB_dif)/2), 2), "TOV.O" = round(scale((tst$TOV_dif + tst$tov_OD)/2), 2), "TOV.D" = -round(scale((tst$tov_OD - tst$TOV_dif)/2), 2), "FT.O" = round(scale((tst$FT_dif + tst$ft_OD)/2), 2), "FT.D" = -round(scale((tst$ft_OD - tst$FT_dif)/2), 2))  
+
+	ff15$O <- round(ff15$EFG.O*.35 + ff15$REB.O*.19 + ff15$TOV.O*.29 + ff15$FT.O*.17, 2)
+	ff15$D <- round(ff15$EFG.D*.38 + ff15$REB.D*.18 + ff15$TOV.D*.22 + ff15$FT.O*.21, 2)
+
+	ff <- data.frame(NPI.ffRPM[,1:4], "EFG.O" = round(scale((NPI.ffRPM$EFG_dif + NPI.ffRPM$efg_OD)/2), 2), "EFG.D" = -round(scale((NPI.ffRPM$efg_OD - NPI.ffRPM$EFG_dif)/2), 2), "REB.O" = round(scale((NPI.ffRPM$REB_dif + NPI.ffRPM$reb_OD)/2), 2), "REB.D" = -round(scale((NPI.ffRPM$reb_OD - NPI.ffRPM$REB_dif)/2), 2), "TOV.O" = -round(scale((NPI.ffRPM$TOV_dif + NPI.ffRPM$tov_OD)/2), 2), "TOV.D" = round(scale((NPI.ffRPM$tov_OD - NPI.ffRPM$TOV_dif)/2), 2), "FT.O" = round(scale((NPI.ffRPM$FT_dif + NPI.ffRPM$ft_OD)/2), 2), "FT.D" = -round(scale((NPI.ffRPM$ft_OD - NPI.ffRPM$FT_dif)/2), 2))  
+
+	ff$O <- round(ff$EFG.O*.35 + ff$REB.O*.19 + ff$TOV.O*.29 + ff$FT.O*.17, 2)
+	ff$D <- round(ff$EFG.D*.38 + ff$REB.D*.18 + ff$TOV.D*.22 + ff$FT.O*.21, 2)	
+
+ff <- ff[order(ff$O, decreasing = T), ]
+	

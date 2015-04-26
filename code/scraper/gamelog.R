@@ -1,0 +1,75 @@
+setwd("~/GitHub/bball")
+
+library(XML)
+library(RCurl)
+library(httr)
+library(stringr)
+
+#HLD <- read.csv("log_HLD.csv")
+
+
+id <- read.csv("players_id.csv")
+	id <- subset(id, first_season >= 2000 & first_season < 2012)
+
+HLD <- data.frame("Age"=NA, "MP"=NA, "FG"=NA, "FGA"=NA, "FG%"=NA, "3P"=NA, "3PA"=NA, "3P%"=NA, "FT"=NA, "FTA"=NA, "FT%"=NA, "ORB"=NA, "DRB"=NA, "TRB"=NA, "AST"=NA, "STL"=NA, "BLK"=NA, "TOV"=NA, "PF"=NA, "PTS"=NA, "DRE"=NA, "Name"=NA, "Exp"=NA)
+for(i in 800:nrow(id)){
+for(j in id$first_season[i]:2014){
+	url <- paste0("http://www.basketball-reference.com", id$id[i], "/gamelog/", j + 1, "/")
+	logs <- GET(url)
+	logs <- readHTMLTable(rawToChar(logs$content), stringsAsFactors = F)
+	logs <- as.data.frame(logs$pgl_basic[c(4, 10:28)])	
+	if(nrow(logs) <= 1){
+	}else{
+			logs <- subset(logs, Age != "Age")
+			logs$MP <- as.numeric(str_split_fixed(logs$MP, fixed(":"), 2)[, 2])/60 + as.numeric(str_split_fixed(logs$MP, fixed(":"), 2)[, 1])
+			logs$Age <- as.numeric(str_split_fixed(logs$Age, fixed("-"), 2)[, 2])/365 + as.numeric(str_split_fixed(logs$Age, fixed("-"), 2)[, 1])
+			logs <- as.data.frame(apply(logs, 2, as.numeric))
+	logs$DRE <- logs$PTS + .2*logs$TRB + 1.7*logs$STL + .535*logs$BLK + .5*logs$AST - .9*logs$FGA - .35*logs$FTA - 1.4*logs$TOV - .136*logs$MP
+	logs$Name <- id$name[i]
+	logs$Exp <- j - id$first_season[i] + 1	
+	colnames(logs) <- colnames(HLD)
+	HLD <- rbind(HLD, logs)
+	}
+}
+}
+
+
+
+
+
+d$DRE <- d$PTS + .2*d$TRB + 1.7*d$STL + .535*d$BLK + .5*d$AST - .9*d$FGA - .35*d$FTA - 1.4*d$TOV - .136*d$MP	
+	
+png("wolvlog.png", height = 500, width = 500)	
+plot(NULL, xlim=c(1, 82), ylim=c(-10,20), ylab = "DRE", xlab = "Games", main = "Wiggins (blue) and LaVine (red)", font = 2, font.lab = 2)	
+points(d$Rk[d$Name == "Andrew Wiggins"], d$DRE[d$Name ==  "Andrew Wiggins"], pch = 1, col = "blue")	
+	lws <- loess(DRE ~ Rk, data = subset(d, Name == "Andrew Wiggins"), span = .5)
+	d <- d[order(d$Rk),]
+	lines(d$Rk[d$Name == "Andrew Wiggins"], predict(lws, subset(d, Name == "Andrew Wiggins")), col = "blue", lwd = 2)
+	abline(v = 27)
+points(d$Rk[d$Name == "Zach LaVine"], d$DRE[d$Name ==  "Zach LaVine"], pch = 1, col = "red")	
+	lws <- loess(DRE ~ Rk, data = subset(d, Name == "Zach LaVine"), span = .5)
+	lines(d$Rk[d$Name == "Zach LaVine"], predict(lws, d$Rk[d$Name == "Zach LaVine"]), col = "red", lwd = 2)
+dev.off()	
+	
+	
+
+
+png("kant.png", height = 500, width = 500)	
+plot(NULL, xlim=c(1, 82), ylim=c(50,150), ylab = "Opp Points", xlab = "Game", main = "", font = 2, font.lab = 2)
+	points(d$G[d$Team == "UTA"], d$Opp[d$Team == "UTA"], pch = 16, col = "purple")	
+		lws <- loess(Opp ~ G, data = subset(d, Team == "UTA"), span = .5)
+		lines(d$G[d$Team == "UTA"], predict(lws, c(1:80)), col = "purple", lwd = 2)
+	points(d$G[d$Team == "OKC"], d$Opp[d$Team == "OKC"], pch = 16, col = "orange")	
+		lws2 <- loess(Opp ~ G, data = subset(d, Team == "OKC"), span = .5)
+		lines(d$G[d$Team == "OKC"], predict(lws2, c(1:80)), col = "orange", lwd = 2)
+	abline(v = 49)
+	legend("topleft", c("Jazz", "Thunder", "Kanter Trade"), lty = c(1, 1, 1), lwd = c(2, 2, 1), col = c("purple", "orange", "black"), bty = "n")
+dev.off()
+
+
+
+
+
+
+
+

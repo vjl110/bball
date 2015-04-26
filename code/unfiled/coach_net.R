@@ -1,0 +1,57 @@
+setwd("~/GitHub/bball/data")
+library("igraph")
+
+coach <- read.csv('coachs_30oct.csv')
+
+coach2 <- data.frame("par" = coach$P1, "ego" = coach$Coach, "crnt" = coach$crnt)
+#	coach <- subset(coach, par != "")
+for(i in 3:11){	
+	hld <- data.frame("par" = coach[,i], "ego" = coach$Coach, "crnt" = coach$crnt)
+	hld <- subset(hld, par != "")
+	coach2 <- rbind(coach2, hld)
+}
+
+
+coach2$par[coach2$par == ""] <- NA
+
+
+
+write.csv(coach2, "coach_net.csv", row.names=FALSE)
+
+
+
+
+
+
+
+
+
+
+# Mentees
+	sub <- subset(coach, par == "Lefty Driesell")
+	lvl1 <- unique(c(as.character(sub$ego), as.character(sub$par)))
+	sub2 <- subset(coach, par %in% lvl1)
+# Mentors
+	sub <- subset(coach, ego == "Barry Collier")
+	lvl1 <- unique(c(as.character(sub$ego), as.character(sub$par)))
+	sub2 <- subset(coach, ego %in% lvl1)
+
+cch.net <- graph.data.frame(sub3, directed=T)
+
+head(V(cch.net))
+head(E(cch.net))
+
+#bad.vs<-V(cch.net)[degree(cch.net)<3]
+#cch.net<-delete.vertices(cch.net, bad.vs) 
+
+#V(cch.net)$color<-ifelse(V(cch.net)$name=='CA', 'blue', 'red')
+
+#V(cch.net)$size<-degree(cch.net)/3
+
+#png("coach_tst.png", height=10000, width=10000)
+	plot.igraph(cch.net, vertex.label=V(cch.net)$name ,layout=layout.graphopt, vertex.label.color="black", edge.color="black", edge.width=E(cch.net)$weight/2, edge.arrow.size=0.25, edge.curved=TRUE)
+#dev.off()
+
+
+
+
