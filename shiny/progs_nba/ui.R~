@@ -1,0 +1,40 @@
+library(shiny)
+
+dat <- read.csv("data/log_HLD.csv")
+
+shinyUI(pageWithSidebar(
+  headerPanel('NBA Player Development Curves'),
+  sidebarPanel(
+      		selectInput("stat", "Statistic:", 
+        		list("VAL"= 21, "MP"=2, "PTS"=20, "AST"=15, "TOV"=18, "TRB"=14, "STL"=16, "BLK"=17), selected = ""),
+		checkboxInput("permin", label = "Per Minute", value = 1),	       
+		selectizeInput("plr", 
+       	 		label = "Player (red)",
+        		choices = c("", paste(unique(as.character(dat$Name)))),
+        		selected = "", options = list(maxOptions = 5000)),
+	       	selectizeInput("plr2", 
+       	 		label = "Player (blue)",
+        		choices = c("", paste(unique(as.character(dat$Name)))),
+        		selected = "", options = list(maxOptions = 5000)),
+    		numericInput("age_mn", "Age start:",
+                	min = 0, max = 10000, value = 0),
+	        numericInput("age_mx", "Age end:",
+                	min = 0, max = 10000, value = 50),   	       
+    		sliderInput("spn", "Smoothing:",
+                	min = .25, max = 1, step = 0.05, value = 1),	      	       
+	       width = 2),		
+			
+  mainPanel(    
+    plotOutput('plot1')
+  )
+))
+
+
+
+
+
+
+
+
+
+

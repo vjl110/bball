@@ -1,0 +1,140 @@
+setwd("C:/Users/Layne/Dropbox/bball")
+
+library(XML)
+library(RCurl)
+library(httr)
+
+###
+##### DX Euro stats.
+###
+###  INDI
+
+dx.dmp <- data.frame("Name"=NA,	"Season"=NA, "League"=NA, "Team"=NA, "Pos"=NA, "G"=NA, "MP"=NA, "MPG"=NA, "X2P"=NA, "X2PA"=NA, "X3P"=NA, "X3PA"=NA, "FT"=NA, "FTA"=NA, "ORB"=NA, "TRB"=NA, "AST"=NA, "TOV"=NA, "STL"=NA, "BLK"=NA, "PF"=NA, "PTS"=NA)
+lg.nam <- c("EURO", "EUROCUP", "ACB", "FRENCH", "GREEK", "ADRIATIC", "ITALIAN")
+i <- 0
+lg <- 1
+while(lg < 8){
+	dxurl <- paste(c("http://www.draftexpress.com/stats.php?year=2015&league=", lg.nam[lg], "&per=total&qual=all&sort2=DESC&pos=all&stage=&min=All&conference=&pageno=", 0 + i, "&sort=6"), collapse="")
+	dx <- GET(dxurl)
+		dx <- readHTMLTable(rawToChar(dx$content), stringsAsFactors = F)
+			if(length(dx) == 5){
+				lg <- lg + 1
+				i <- 0
+			}else{
+				dx <- as.data.frame(dx[[6]])				
+				dx <- data.frame("Name"=dx[,2], "Season"=2015, "League"=lg.nam[lg], "Team"=dx[,3], "Pos"=NA, "G"=dx[,4], "MP"=NA, "MPG"=dx[,5], "X2P"=dx[,10], "X2PA"=dx[,11], "X3P"=dx[,13], "X3PA"=dx[,14], "FT"=dx[,16], "FTA"=dx[,17], "ORB"=dx[,19], "TRB"=dx[,21], "AST"=dx[,22], "TOV"=dx[,25], "STL"=dx[,23], "BLK"=dx[,24], "PF"=dx[,26], "PTS"=dx[,6])		
+				dx$MP <- as.numeric(as.character(dx$MPG))*as.numeric(as.character(dx$G))			
+				dx.dmp <- rbind(dx.dmp, dx)
+				i <- i + 1				
+			}				
+}
+dx.dmp[dx.dmp == "&nbsp"] <- NA
+
+dx.dmp <- subset(dx.dmp, Name != "Devin Booker")
+
+write.csv(dx.dmp, "data/euro.ind_2015upd.csv", row.names = FALSE)
+
+###  TEAM
+tm.dmp <- data.frame("Season"=NA, "League"=NA, "Team"=NA, "G_tm"=NA, "MP_tm"=NA, "X2P_tm"=NA, "X2PA_tm"=NA, "X3P_tm"=NA, "X3PA_tm"=NA, "FT_tm"=NA, "FTA_tm"=NA, "ORB_tm"=NA, "TRB_tm"=NA, "AST_tm"=NA, "TOV_tm"=NA, "STL_tm"=NA, "BLK_tm"=NA, "PF_tm"=NA, "PTS_tm"=NA, "Pace"=NA)
+lg.nam <- c("EURO", "EUROCUP", "ACB", "FRENCH", "GREEK", "ADRIATIC", "ITALIAN")
+for(i in 1:length(lg.nam)){
+	tmurl <- paste(c("http://www.draftexpress.com/teamstats.php?league=EURO&q=&sort=&year=2015&league=", lg.nam[i], "&year=2015&per=total"), collapse="")
+	tm <- GET(tmurl)
+		tm <- readHTMLTable(rawToChar(tm$content), stringsAsFactors = F)
+		tm <- as.data.frame(tm[[6]])				
+		tm <- data.frame("Season"=2015, "League"=lg.nam[i], "Team"=tm[,1], "G_tm"=tm[,2], "MP_tm"=NA, "X2P_tm"=tm[,7], "X2PA_tm"=tm[,8], "X3P_tm"=tm[,10], "X3PA_tm"=tm[,11], "FT_tm"=tm[,13], "FTA_tm"=tm[,14], "ORB_tm"=tm[,16], "TRB_tm"=tm[,18], "AST_tm"=tm[,19], "TOV_tm"=tm[,22], "STL_tm"=tm[,20], "BLK_tm"=tm[,21], "PF_tm"=tm[,23], "PTS_tm"=tm[,4], "Pace"=NA)
+		for(j in 4:ncol(tm)){
+			tm[,j] <- as.numeric(as.character(tm[,j]))
+		}
+		tm$Pace <- (tm$X2PA_tm + tm$X3PA_tm + tm$TOV_tm + tm$FTA_tm*0.44 - tm$ORB_tm)/(tm$G_tm*(40))
+		tm.dmp <- rbind(tm.dmp, tm)
+}
+write.csv(tm.dmp, "data/euro.tm_2015upd.csv", row.names = FALSE)
+
+
+
+
+
+###
+##### DX NCAA stats.
+###
+###  INDI
+
+dx.dmp <- data.frame("Name"=NA, "Lg"="NCAA", "Tm"=NA, "Season"=NA, "Pos"=NA, "G"=NA, "MP"=NA, "MPG"=NA, "X2P"=NA, "X2PA"=NA, "X3P"=NA, "X3PA"=NA, "FT"=NA, "FTA"=NA, "ORB"=NA, "TRB"=NA, "AST"=NA, "TOV"=NA, "STL"=NA, "BLK"=NA, "PF"=NA, "PTS"=NA, "EXP"=NA)
+
+kill <- 0
+i <- 0
+while(kill == 0){
+	dxurl <- paste(c("http://www.draftexpress.com/stats.php?year=2015&league=NCAA&per=total&qual=prospects&sort2=DESC&pos=all&stage=all&min=All&conference=All&pageno=", 0 + i, "&sort=5"), collapse="")
+	dx <- GET(dxurl)
+		dx <- readHTMLTable(rawToChar(dx$content), stringsAsFactors = F)
+			if(length(dx) == 5){
+				kill <- 1
+				i <- 0
+			}else{
+				dx <- as.data.frame(dx[[6]])				
+				dx <- data.frame("Name"=dx[,2], "Lg"="NCAA", "Tm"=dx[,3], "Season"=2015,  "Pos"=NA, "G"=dx[,4], "MP"=NA, "MPG"=dx[,5], "X2P"=dx[,10], "X2PA"=dx[,11], "X3P"=dx[,13], "X3PA"=dx[,14], "FT"=dx[,16], "FTA"=dx[,17], "ORB"=dx[,19], "TRB"=dx[,21], "AST"=dx[,22], "TOV"=dx[,25], "STL"=dx[,23], "BLK"=dx[,24], "PF"=dx[,26], "PTS"=dx[,6], "EXP" = NA)		
+				dx$MP <- as.numeric(as.character(dx$MPG))*as.numeric(as.character(dx$G))			
+				dx.dmp <- rbind(dx.dmp, dx)
+				i <- i + 1				
+			}				
+}
+
+dx.dmp <- dx.dmp[-1,]
+dx.dmp[dx.dmp == "&nbsp"] <- NA
+	std <- read.csv("data/team_stds.csv")
+	colnames(std)[3] <- "Tm" 
+	dx.dmp <- merge(dx.dmp, std, by = "Tm")
+ncaa.ind <- data.frame(dx.dmp[,2:3], "Tm"=dx.dmp$url, dx.dmp[,c(4,6:7,9:23)])
+
+ncaa.ind <- subset(ncaa.ind, Name != "Andre Brown" & Name != "Earl Watson" & Name != "Chris Robinson" & Name != "John Edwards" & Name != "Wesley Johnson" & Name != "Joel James" & Name != "Devin Harris" & Name != "Marvin Williams" &Name != "Josh Smith" & Name != "Maceo Baston" & Name != "Lamond Murray" & Name != "Maurice Taylor" & Name != "Matt Howard" & Name != "James White" & Name != "Bobby Brown" & Name != "Juwan Howard" & Name != "Mo Williams" & Name != "Brandon Williams" &Name != "James Johnson" & Name != "Frank Williams" & Name != "Terrence Williams" & Name != "A.J. English" & Name != "Sam Jones" & Name != "John Johnson" & Name != "John Brown" & Name != "Larry Johnson" & Name != "Reggie Johnson" & Name != "Reggie Theus" & Name != "Michael Young" & Name != "Bernard Thompson" & Name != "Dwayne Polee" & Name != "Mike Brown" & Name != "Mike Williams" & Name != "Tim Kempton" & Name != "David Rivers" & Name != "Avery Johnson" & Name != "Chris Washburn" & Name != "Eric Johnson" & Name != "Kevin Johnson" & Name != "Thomas Hamilton" & Name != "Steve Smith" & Name != "Wesley Person" & Name != "Michael Bradley" & Name != "Rodney Williams" & Name != "JaJuan Johnson" &  Name != "James Robinson" & Name != "Eric Washington" & Name != "Marcus Thornton" & Name != "Mike Scott" & Name != "Reggie Smith" & Name != "Deonte Burton" & Name != "Joseph Young" & Name != "Tyler Stone" & Name != "Eric Anderson" & Name != "Aaron Williams" & Name != "Chris Smith" & Name != "Jordan Williams" & Name != "Anthony Johnson" & Name != "Chris Corchiani")
+
+ncaa.ind$Name[ncaa.ind$Name == "Larry Nance"] <- "Larry Nance '15"
+ncaa.ind$Name[ncaa.ind$Name == "Jakob Poltl"] <- "Jakob Poeltl"
+ncaa.ind$Name[ncaa.ind$Name == "Gary Payton"] <- "Gary Payton II"
+ncaa.ind$Name[ncaa.ind$Name == "Shawn Kemp"] <- "Shawn Kemp II"
+ncaa.ind$Name[ncaa.ind$Name == "Fred VanVleet"] <- "Fred VanFleet"
+
+
+write.csv(ncaa.ind, "data/ncaa.ind_2015upd.csv", row.names = FALSE)
+
+###
+######  teams ####
+###
+ref <- as.vector(read.csv("data/team_stds.csv")$url)
+url <- "http://www.sports-reference.com/cbb/schools/"
+team <- data.frame("Tm" = NA, "Season" = NA, "Conf" = NA, "W" = NA, "L" = NA, "W.L" = NA, "SRS" = NA, "SOS" = NA, "PPG" = NA, "O.PPG" = NA, "AP.Pre" = NA, "AP.High" = NA, "AP.Final" = NA, "NCAA.Tournament" = NA, "Coach" = NA, "G" = NA, "MP" = NA, "FG" = NA, "FGA" = NA, "X2P" = NA, "X2PA" = NA, "X3P" = NA, "X3PA" = NA, "FT" = NA, "FTA" = NA, "ORB" = NA, "DRB" = NA, "TRB" = NA, "AST" = NA, "TOV" = NA, "STL" = NA, "BLK" = NA, "PF" = NA, "PTS" =  NA)
+for(i in 1:length(ref)){
+	kill <- 0
+	skl.url <- paste(url, ref[i], "/",sep="", collapse = "")
+	sea.url <- paste(url, ref[i], "/", "2015.html",sep="", collapse = "") 
+	skl <- GET(skl.url)
+	sea <- GET(sea.url)
+		skl <- readHTMLTable(rawToChar(skl$content), stringsAsFactors = F)
+			skl <- as.data.frame(skl)
+		if(nrow(skl) > 0){ 
+			if(skl[1,2] == "2014-15Â" | skl[1,2] == "2014-15*Â" ){
+				sea <- readHTMLTable(rawToChar(sea$content), stringsAsFactors = F)
+					sea <- as.data.frame(sea$team_stats)
+				hld <- data.frame("Tm" = ref[i], "Season" = 2015, "Conf" = skl[1,3], "W" = skl[1,4], "L" = skl[1,5], "W.L" = skl[1,6], "SRS" = skl[1,7], "SOS" = skl[1,8], "PPG" = skl[1,9], "O.PPG" = skl[1,10], "AP.Pre" = skl[1,11], "AP.High" = skl[1,12], "AP.Final" = skl[1,13], "NCAA.Tournament" = skl[1,14], "Coach" = skl[1,15], "G" = sea[1,2], "MP" = sea[1,3], "FG" = sea[1,4], "FGA" = sea[1,5], "X2P" = sea[1,7], "X2PA" = sea[1,8], "X3P" = sea[1,10], "X3PA" = sea[1,11], "FT" = sea[1,13], "FTA" = sea[1,14], "ORB" = sea[1,16], "DRB" = sea[1,17], "TRB" = sea[1,18], "AST" = sea[1,19], "TOV" = sea[1,22], "STL" = sea[1,20], "BLK" = sea[1,21], "PF" = sea[1,23], "PTS" =  sea[1,24])
+				team <- rbind(team, hld)
+			}else{
+			}
+		}else{
+		}
+}
+team <- team[-1,]
+
+coach.iso <- strsplit(team$Coach, " (", fixed=TRUE)
+for(i in 1:nrow(team)){
+	team$Coach[i] <- coach.iso[[i]][1]
+}
+write.csv(team, "data/ncaa.tm_2015upd.csv", row.names = FALSE)
+
+
+
+
+
+
+
+

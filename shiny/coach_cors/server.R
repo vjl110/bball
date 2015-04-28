@@ -1,0 +1,45 @@
+library(shiny)
+
+dat <- read.csv("data/corset.csv")
+net <- read.csv("data/coach_net.csv")
+
+shinyServer(function(input, output) {
+
+  output$plot1 <- renderPlot({
+
+      validate(
+       	   need(input$cch != "", "Please select a coach")
+      )    
+
+	set <- data.frame(dat[1:7], "ncaa" = dat[,as.numeric(input$stat)], "nba" = dat[,(as.numeric(input$stat) - 14)])
+	set <- na.omit(set)
+	set <- subset(set, Pos >= input$pos[1] & Pos <= input$pos[2])
+      		dec <- subset(net, par == input$cch & !is.na(ego)) 
+ 	        anc <- subset(net, ego == input$cch & !is.na(par)) 	
+			grp <- unique(c(as.character(dec$ego), as.character(dec$par), as.character(anc$ego), as.character(anc$par)))
+
+	validate(
+       	   need(length(grp) != 0, "No relevant players")
+      )	  	
+
+	x <- lm(ncaa ~ Age + EXP + SOS, data = set)
+	y <- lm(nba ~ Age + EXP + SOS, data = set)
+		hld <- data.frame("resx" = as.numeric(resid(x)), "resy" = as.numeric(resid(y)), "Coach" = set$Coach, "Name" = set$Name)
+
+		min.par <- min(c(hld$resx, hld$resy))
+		max.par <- max(c(hld$resx, hld$resy))
+		m1 <- lm(resx ~ resy, data = hld)
+	
+plot(NULL, xlim = c(min.par, max.par), ylim = c(min.par, max.par), xlab = "NCAA", ylab = "NBA", main = paste(colnames(dat)[as.numeric(input$stat)]), font = 2, font.lab = 2, cex.lab = 1.5, cex.main = 1.5, pin = c(5, 5))
+	lines(c(min.par, max.par), coef(m1)[1] + coef(m1)[2]*c(min.par, max.par), col= "blue")
+	points(hld$resx, hld$resy, col = "light grey", pch = 16)
+	points(hld$resx[hld$Coach %in% grp], hld$resy[hld$Coach %in% grp], col = "pink", pch = 16, cex = 2)
+	points(hld$resx[hld$Coach == input$cch], hld$resy[hld$Coach == input$cch], col = "red", pch = 16, cex = 2)	
+	text(hld$resx[hld$Coach == input$cch], hld$resy[hld$Coach == input$cch], labels=hld$Name[hld$Coach == input$cch], cex= 1.25, pos=3, font = 2)
+  }, height = 750, width = 750)
+}) 
+
+
+
+
+
