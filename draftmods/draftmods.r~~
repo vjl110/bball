@@ -205,7 +205,8 @@ star.ncaa <- ncaa
 	star.ncaa$PRB <- ifelse(!is.na(star.ncaa$OBS) & star.ncaa$OBS >= 7.5, 3, star.ncaa$PRB)
 	star.ncaa$PRB <- ifelse(!is.na(star.ncaa$OBS) & star.ncaa$OBS >= 10, 4, star.ncaa$PRB)
 
-star.euro <- merge(euro.hum, data, by = c("Name", "Season", "League", "Team", "HUM"), all.x = T)
+star.euro <- merge(data, euro.hum, by = c("Name", "Season", "League", "Team", "HUM"), all.x = T)
+	star.euro <- subset(star.euro, League != "NCAA")
 	star.euro$PRB <- NA
 	star.euro$PRB <- ifelse(!is.na(star.euro$OBS) & star.euro$OBS >= 2.5, 1, 0)
 	star.euro$PRB <- ifelse(!is.na(star.euro$OBS) & star.euro$OBS >= 5, 2, star.euro$PRB)
@@ -314,11 +315,9 @@ draft <- data.frame(draft[1:8], "AVG" = round(ifelse(!is.na(draft$HUM), (draft$H
 	#data <- merge(data, POS, by = "Name", all.x = T)	
 
 
-write.csv(data, "data/OUTPUT.FULL.csv", row.names = FALSE)
-write.csv(draft, "data/OUTPUT.DRAFT.csv", row.names = FALSE)
+write.csv(data, "~/GitHub/bball/shiny/preds/data/OUTPUT.FULL.csv", row.names = FALSE)
+write.csv(draft, "~/GitHub/bball/shiny/preds/data/OUTPUT.DRAFT.csv", row.names = FALSE)
 
 
 
 
-podds <- c()
-for(i in 1:5)

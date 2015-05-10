@@ -1,88 +1,82 @@
-setwd("~/GitHub/bball")
+setwd("C:/Users/Layne/Dropbox/bball")
 library(glmnet) #load glmnet package
 library(SDMTools) #load glmnet package
 
 
-NPI <- read.csv("NPI.csv")
-HOME.adv <- read.csv("HOME.adv.csv")
 ###
 ###
 HOME.adv <- data.frame("Season" = 2001:2015, 
-		       "EFG.df"=NA,  "FT.df"=NA,  "TOV.df"=NA,  "REB.df"=NA, "MRG.df" = NA, "EFG.od"=NA,  "FT.od"=NA,  "TOV.od"=NA,  "REB.od"=NA, "MRG.od" = NA) 
+		       "EFG_O"=NA,  "FTR_O"=NA,  "TOR_O"=NA,  "REB_O"=NA, "MRG_O" = NA, "PACE_O" = NA, "EFG_D"=NA,  "FTR_D"=NA,  "TOR_D"=NA,  "REB_D"=NA, "MRG_D" = NA, "PACE_D" = NA) 
+
 DMP <- list()
 for(s in 2001:2015){
 	#####  Basic pre-pred that applies to all 4 factors
-	lnp.yr <- subset(read.csv("LUP_RPM.csv", stringsAsFactors=FALSE), (Season == s | Season == s-1 | Season == s+1) & !is.na(EFG.df) & !is.na(FT.df) & !is.na(TOV.df) & !is.na(REB.df) & POSS > 0)
-	plr.yr <- subset(read.csv("PLR_RPM.csv", stringsAsFactors=FALSE), Season == s | Season == s-1 | Season == s+1)
-		plr.yr <- plr.yr[,c(1:2, ncol(plr.yr))]
-			plr.yr <- subset(plr.yr, !duplicated(ID))
-	lnp.yr[plr.yr$ID] <- 0
+	lnp.yr <- subset(read.csv("data/LUP_RPM.csv", stringsAsFactors=FALSE), (Season == s | Season == s-1 | Season == s+1) & !is.na(EFG) & !is.na(FTR) & !is.na(TOR) & !is.na(REB) & POSS > 0 & PACE != "Inf")
+	plr.yr <- subset(read.csv("data/plr.csv", stringsAsFactors=FALSE), Season == s | Season == s-1 | Season == s+1)
+		plr.yr <- subset(plr.yr, !duplicated(bbr))
+		plr.yr <- plr.yr[order(plr.yr$bbr), ]
+	lnp.yr[plr.yr$bbr] <- 0
 	row.names(lnp.yr) <- 1:nrow(lnp.yr)
-	for(j in 24:ncol(lnp.yr)){
-		ego <- grep(colnames(lnp.yr)[j], lnp.yr$LINEUP)
-		alt <- grep(colnames(lnp.yr)[j], lnp.yr$CP_LINEUP)
-		lnp.yr[row.names(lnp.yr) %in% ego, j] <- 1
-		lnp.yr[row.names(lnp.yr) %in% alt, j] <- -1
+	O <- lnp.yr
+	D <- lnp.yr
+	for(j in 16:ncol(lnp.yr)){
+		ego <- grep(colnames(O)[j], O$LINEUP)
+		O[row.names(O) %in% ego, j] <- 1
+
+		alt <- grep(colnames(D)[j], D$CP_LINEUP)
+		D[row.names(D) %in% alt, j] <- 1
 	}
+	colnames(D) <- paste0(colnames(D), "_D")
+	lnp.yr <- cbind(O, D[16:ncol(lnp.yr)])  ####  NEEED TO ADD A "D" to NAMEZ!!!
+
 	
-	data <- data.matrix(lnp.yr[c(6,24:ncol(lnp.yr))]) #turn the data frame (which is now just 1s, -1s, and 0s) into a matrix
+	data <- data.matrix(lnp.yr[c(4,16:ncol(lnp.yr))]) #turn the data frame (which is now just 1s, -1s, and 0s) into a matrix
 	X <- sparse.model.matrix(~data[,1]-1)
 	for (i in 2:ncol(data)) {
 		    coluna <- sparse.model.matrix(~data[,i]-1)
  			 X <- cBind(X, coluna)
 	}
-	X2 <- X
-	X2[X2 == -1] <- 1
 
 	#####  Begin modeling for each factor
-	DV_DFs <- list(lnp.yr$EFG.df, lnp.yr$FT.df, lnp.yr$TOV.df, lnp.yr$REB.df, lnp.yr$MRG.df/lnp.yr$POSS)
-	DV_ODs <- list(lnp.yr$EFG.od, lnp.yr$FT.od, lnp.yr$TOV.od, lnp.yr$REB.od, lnp.yr$MRG.od/lnp.yr$POSS)
-	WGTs <- list(lnp.yr$FGA, lnp.yr$FGA, lnp.yr$POSS.to, lnp.yr$RB.chance, lnp.yr$POSS)
-
-	coef_hld <- list()
-	for(i in 1:length(DV_DFs)){
-	dv_df <- DV_DFs[[i]]
-	dv_od <- DV_ODs[[i]]
+	DV <- list(lnp.yr$EFG, lnp.yr$FTR, lnp.yr$TOR, lnp.yr$REB, lnp.yr$MRG/lnp.yr$POSS, lnp.yr$PACE)
+	WGTs <- list(lnp.yr$FGA, lnp.yr$FGA, lnp.yr$POSS.to, lnp.yr$RB.chance, lnp.yr$POSS, lnp.yr$POSS)
+	
+		
+	coef_O <- list()
+	coef_D <- list()
+	for(i in 1:length(DV)){
+	dv <- DV[[i]]
 	wgt <- WGTs[[i]]
-	lambda <- cv.glmnet(X, dv_df, weights=wgt) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
+	lambda <- cv.glmnet(X, dv, weights=wgt) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
 	lambda.1se <- lambda$lambda.1se #store the lambda value that gives the smallest error in an object called lambda.min
-	ridge <- glmnet(X, dv_df, family=c("gaussian"), wgt, alpha=0, lambda=lambda.1se) #
+	ridge <- glmnet(X, dv, family=c("gaussian"), wgt, alpha=0, lambda=lambda.1se) #
 		op <- coef(ridge ,s=lambda.1se) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
 			op <- as.data.frame(as.matrix(op))
 				op$ID <- c("INT", colnames(data))
-					colnames(op) <- c("df", "ID")
+					colnames(op) <- c("df", "bbr")
 						row.names(op) <- 1:nrow(op)
-						HOME.adv[s-2000, i+1] <- op[2,1]
-							op_df <- na.omit(merge(op, plr.yr, by = "ID", all.x=T))
+						op_O <- op[-c(grep("_D", op[,2])), ]
+						op_D <- op[c(grep("_D", op[,2])), ]
+							op_D[,2] <- gsub("_D", "", op_D[,2])
+						HOME.adv[s-2000, i+1] <- op_O[2,1]
+						HOME.adv[s-2000, i+7] <- op_D[2,1]
+							op_O <- na.omit(merge(op_O, plr.yr, by = "bbr", all.x=T))
+							op_D <- na.omit(merge(op_D, plr.yr, by = "bbr", all.x=T))
 
-	lambda <- cv.glmnet(X2, dv_od, weights=wgt) #find the lambda values. these determine how far towards 0 the coefficients are shrunk
-	lambda.1se <- lambda$lambda.1se #store the lambda value that gives the smallest error in an object called lambda.min
-	ridge <- glmnet(X2, dv_od, family=c("gaussian"), wgt, alpha=0, lambda=lambda.1se) #
-		op <- coef(ridge ,s=lambda.1se) #extract the coefficient for each of the independent variables (players) for the lambda with the minimum error 
-			op <- as.data.frame(as.matrix(op))
-				op$ID <- c("INT", colnames(data))
-					colnames(op) <- c("od", "ID")
-						row.names(op) <- 1:nrow(op)
-						HOME.adv[s-2000, i+6] <- op[2,1]				
-							op_od <- na.omit(merge(op, plr.yr, by = "ID", all.x=T))
-			
-	op <- merge(op_df[-3], op_od[-3], by = c( "ID", "Name"))
-	coef_hld[[i]] <- op
+	coef_O[[i]] <- op_O
+	coef_D[[i]] <- op_D
 	}
 	rm(X)
-	rm(X2)
 
-	output <- data.frame("Name" = coef_hld[[1]]$Name, "ID" = coef_hld[[1]]$ID, 
-			     "EFG.O"=(coef_hld[[1]]$df + coef_hld[[1]]$od)/2, 
-			     "EFG.D"=(coef_hld[[1]]$od - coef_hld[[1]]$df)/2, 
-			     "FT.O"=(coef_hld[[2]]$df + coef_hld[[2]]$od)/2, 
-			     "FT.D"=(coef_hld[[2]]$od - coef_hld[[2]]$df)/2,
-			     "TOV.O"=(coef_hld[[3]]$df + coef_hld[[3]]$od)/2, 
-			     "TOV.D"=(coef_hld[[3]]$od - coef_hld[[3]]$df)/2, 
-			     "REB.O"=(coef_hld[[4]]$df + coef_hld[[4]]$od)/2, 
-			     "REB.D"=(coef_hld[[4]]$od - coef_hld[[4]]$df)/2, 
-			     "MRG.O"=(coef_hld[[5]]$df + coef_hld[[5]]$od)/2, 
-			     "MRG.D"=(coef_hld[[5]]$od - coef_hld[[5]]$df)/2)
+	output <- data.frame("name" = coef_hld[[1]]$name, "id" = coef_hld[[1]]$id, 
+			     "EFG.O"=coef_O[[1]]$df, "EFG.D"=coef_D[[1]]$df,
+			     "FTR.O"=coef_O[[2]]$df, "FTR.D"=coef_D[[2]]$df,
+			     "TOR.O"=coef_O[[3]]$df, "TOR.D"=coef_D[[3]]$df,
+			     "REB.O"=coef_O[[4]]$df, "REB.D"=coef_D[[4]]$df,
+			     "MRG.O"=coef_O[[5]]$df, "MRG.D"=coef_D[[5]]$df,
+			     "PCE.O"=coef_O[[6]]$df, "PCE.D"=coef_D[[6]]$df)
+
+
 			rm(coef_hld)
 		plr.set <- subset(read.csv("PLR_RPM.csv", stringsAsFactors=FALSE), Season == s | Season == s-1 | Season == s+1)[c(1, 9, 61)]
 		plr.set <- aggregate( . ~ Name + ID, data = plr.set, sum)
