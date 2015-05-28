@@ -20,7 +20,7 @@ mnth <- 1:12
 day <- 1:31
 for(y in 1:length(year)){
 	for(m in 1:length(mnth)){
-		for(d in 1:length(day)){			
+		for(d in 2:length(day)){			
 			ngt <- paste0(c("http://www.basketball-reference.com/boxscores/index.cgi?month=", mnth[m], "&day=", day[d], "&year=", year[y]), collapse = "")
 			ngt <- GET(ngt)
 			ngt <- content(ngt, as="text")
@@ -43,9 +43,9 @@ write.csv(GAMESET, "data/GAMESET.csv", row.names=FALSE)
 GAMESET <- read.csv("data/GAMESET.csv")
 LINEUP.DMP <- read.csv("data/LINEUP_DMP.csv")
 
-LINEUP.DMP <- data.frame("YEAR"=NA, "MONTH"=NA, "DAY"=NA, "Tm"=NA, "Opp"=NA, "HOME"=NA, "LINEUP"=NA, "CP_LINEUP"=NA, "X2P"=NA, "X2PA"=NA, "X3P"=NA, "X3PA"=NA, "FT"=NA, "FTA"=NA, "DRB"=NA, "ORB"=NA, "TOV"=NA, "POSS"=NA, "PTS"=NA, "X2P.cp"=NA, "X2PA.cp"=NA, "X3P.cp"=NA, "X3PA.cp"=NA, "FT.cp"=NA, "FTA.cp"=NA, "DRB.cp"=NA, "ORB.cp"=NA, "TOV.cp"=NA, "POSS.cp"=NA, "PTS.cp"=NA, "T_O"=NA, "T_D"=NA, "DIF"=NA)
+LINEUP.DMP <- data.frame("YEAR"=NA, "MONTH"=NA, "DAY"=NA, "Tm"=NA, "Opp"=NA, "HOME"=NA, "LINEUP"=NA, "CP_LINEUP"=NA, "X2P"=NA, "X2PA"=NA, "X3P"=NA, "X3PA"=NA, "FT"=NA, "FTA"=NA, "DRB"=NA, "ORB"=NA, "TOV"=NA, "POSS"=NA, "PTS"=NA, "DIF"=NA, "T"=NA, "X2P.cp"=NA, "X2PA.cp"=NA, "X3P.cp"=NA, "X3PA.cp"=NA, "FT.cp"=NA, "FTA.cp"=NA, "DRB.cp"=NA, "ORB.cp"=NA, "TOV.cp"=NA, "POSS.cp"=NA, "PTS.cp"=NA, "DIF.cp"=NA, "T.cp"=NA)
 
-for(n in 2599:nrow(GAMESET)){	
+for(n in 3008:nrow(GAMESET)){	
 	for(g in 4:length(GAMESET[n,][!is.na(GAMESET[n,])])){	
 
 #######
@@ -209,6 +209,9 @@ for(i in 1:nrow(GM)){
 	GM$PTS.a[i] <- ifelse(length(grep("\\+1", GM[i,1], ignore.case=T)) > 0, 1, 0)
 	GM$PTS.a[i] <- ifelse(length(grep("\\+2", GM[i,1], ignore.case=T)) > 0, 2, GM$PTS.a[i])
 	GM$PTS.a[i] <- ifelse(length(grep("\\+3", GM[i,1], ignore.case=T)) > 0, 3, GM$PTS.a[i])	
+	GM$DIF.a[i] <- GM$S1[i] - GM$S2[i]
+	GM$T.a[i] <- ifelse(length(GM$TIME[i] - GM$TIME[i-1]) > 0 & GM$POSS.a[i] == 1, GM$TIME[i] - GM$TIME[i-1], 0) 
+
 
 	GM$X2P.h[i] <-  ifelse(length(grep("(?=.*makes)(?!.*3-pt)(?!.*free throw)", GM[i,2], ignore.case=T, perl=T)) > 0, 1, 0)
 	GM$X2PA.h[i] <- ifelse(length(grep("(?=.*makes|misses)(?!.*3-pt)(?!.*free throw)", GM[i,2], ignore.case=T, perl=T)) > 0, 1, 0)
@@ -224,34 +227,31 @@ for(i in 1:nrow(GM)){
 	GM$PTS.h[i] <- ifelse(length(grep("\\+1", GM[i,2], ignore.case=T)) > 0, 1, 0)
 	GM$PTS.h[i] <- ifelse(length(grep("\\+2", GM[i,2], ignore.case=T)) > 0, 2, GM$PTS.h[i])
 	GM$PTS.h[i] <- ifelse(length(grep("\\+3", GM[i,2], ignore.case=T)) > 0, 3, GM$PTS.h[i])	
-
-	GM$T_O[i] <- ifelse(length(GM$TIME[i] - GM$TIME[i-1]) > 0 & GM$POSS.a[i] == 1, GM$TIME[i] - GM$TIME[i-1], 0) 
-	GM$T_D[i] <- ifelse(length(GM$TIME[i] - GM$TIME[i-1]) > 0 & GM$POSS.h[i] == 1, GM$TIME[i] - GM$TIME[i-1], 0) 
+	GM$DIF.h[i] <- GM$S2[i] - GM$S1[i]
+	GM$T.h[i] <- ifelse(length(GM$TIME[i] - GM$TIME[i-1]) > 0 & GM$POSS.h[i] == 1, GM$TIME[i] - GM$TIME[i-1], 0) 
 }
-	GM$DIF <- abs(GM$S1 - GM$S2)
-
 	GM <- GM[-c(1:6)]
 		GM$entries <- 1
 	GM <- aggregate(. ~ AWAY_LINEUP + HOME_LINEUP, data = GM, sum)
-		GM$DIF <- GM$DIF/GM$entries
+		GM$DIF.a <- GM$DIF.a/GM$entries
+		GM$DIF.h <- GM$DIF.h/GM$entries
 		GM <- GM[-ncol(GM)]
 
 
 
 #############  PULL IT ALL TOGETHER AND COLLAPSE STINTS ####################
 
-coly <- c("LINEUP","CP_LINEUP","X2P","X2PA","X3P","X3PA","FT","FTA","DRB","ORB","TOV","POSS","PTS", "X2P.cp", "X2PA.cp", "X3P.cp", "X3PA.cp", "FT.cp", "FTA.cp", "DRB.cp", "ORB.cp", "TOV.cp", "POSS.cp", "PTS.cp", "T_O", "T_D", "DIF")
+coly <- c("LINEUP","CP_LINEUP","X2P","X2PA","X3P","X3PA","FT","FTA","DRB","ORB","TOV","POSS","PTS","DIF","T", "X2P.cp","X2PA.cp","X3P.cp","X3PA.cp","FT.cp","FTA.cp","DRB.cp","ORB.cp","TOV.cp","POSS.cp","PTS.cp","DIF.cp","T.cp")
 AWAY <- cbind("YEAR"=as.numeric(GAMESET[n,1]), "MONTH"=as.numeric(GAMESET[n,2]), "DAY"=as.numeric(GAMESET[n,3]), "Tm"=tm1, "Opp"=tm2, "HOME" = 0, GM)
 	colnames(AWAY)[7:ncol(AWAY)] <- coly
 HOME <- cbind("YEAR"=as.numeric(GAMESET[n,1]), "MONTH"=as.numeric(GAMESET[n,2]), "DAY"=as.numeric(GAMESET[n,3]), "Tm"=tm2, "Opp"=tm1, "HOME" = 1, 
-	      GM[2], GM[1], GM[c(14:24)], GM[c(3:13)], GM[c(25:27)]) 
+	      GM[2], GM[1], GM[c(16:28)], GM[c(3:15)]) 
 	colnames(HOME)[7:ncol(HOME)] <- coly
 GAME <- rbind(AWAY, HOME)	
 
 LINEUP.DMP <- rbind(LINEUP.DMP, GAME)
 	}
 }
-
 
 write.csv(LINEUP.DMP, "data/LINEUP_DMP.csv", row.names = F)
 
@@ -268,7 +268,7 @@ LINEUP.DMP$Season <- ifelse(LINEUP.DMP$MONTH > 7, LINEUP.DMP$YEAR + 1, LINEUP.DM
 #Prep Lineup for RPM
 LP <- LINEUP.DMP
 		
-		LP$DIF <- ifelse(LP$POSS > 0, LP$DIF/LP$POSS, 0)
+		LP$T <- ifelse(LP$POSS > 0, LP$T/LP$POSS, 0)
 
 		#Weights
 		LP$FGA <- LP$X2PA + LP$X3PA # weight
@@ -282,14 +282,12 @@ LP <- LINEUP.DMP
 		LP$REB <- LP$ORB/LP$RB.chance # 
 		LP$FTR <- LP$FT/LP$POSS.to # dif
 		LP$MRG <- LP$PTS # dif
-		LP$PACE <- LP$POSS/(LP$sec/60)
 
-LP <- LP[c(33, 7:8, 6, 32, 18, 34:42)]
+LP <- LP[c(35, 7:8, 6, 18, 36:43, 21, 20)]
+		LP$DIF_abs <- abs(LP$DIF)
+
 
 write.csv(LP, "data/LUP_RPM.csv", row.names = F)
-
-
-
 
 
 

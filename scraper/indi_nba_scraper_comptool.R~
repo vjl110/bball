@@ -1,4 +1,4 @@
-setwd("~/GitHub/bball")
+setwd("C:/Users/Layne/Dropbox/bball")
 
 library(XML)
 library(RCurl)
@@ -32,7 +32,7 @@ dmp <- dmp[-1,]
 	dmp$Season <- substr(dmp$Season, 1, 4)
 	dmp$Season <- as.numeric(dmp$Season) + 1
 
-write.csv(dmp, "data/draftmod/BBRtot2015.csv", row.names = FALSE)
+write.csv(dmp, "data/BBRtot2015.csv", row.names = FALSE)
 
 ##########
 ### ADV
@@ -61,5 +61,5 @@ dmp <- dmp[-1,]
 	dmp$Season <- substr(dmp$Season, 1, 4)
 	dmp$Season <- as.numeric(dmp$Season) + 1
 
-write.csv(dmp, "data/draftmod/BBRadv2015.csv", row.names = FALSE)
+write.csv(dmp, "data/BBRadv2015.csv", row.names = FALSE)
 

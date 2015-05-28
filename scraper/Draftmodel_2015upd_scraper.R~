@@ -87,13 +87,14 @@ dx.dmp[dx.dmp == "&nbsp"] <- NA
 	dx.dmp <- merge(dx.dmp, std, by = "Tm")
 ncaa.ind <- data.frame(dx.dmp[,2:3], "Tm"=dx.dmp$url, dx.dmp[,c(4,6:7,9:23)])
 
-ncaa.ind <- subset(ncaa.ind, Name != "Andre Brown" & Name != "Earl Watson" & Name != "Chris Robinson" & Name != "John Edwards" & Name != "Wesley Johnson" & Name != "Joel James" & Name != "Devin Harris" & Name != "Marvin Williams" &Name != "Josh Smith" & Name != "Maceo Baston" & Name != "Lamond Murray" & Name != "Maurice Taylor" & Name != "Matt Howard" & Name != "James White" & Name != "Bobby Brown" & Name != "Juwan Howard" & Name != "Mo Williams" & Name != "Brandon Williams" &Name != "James Johnson" & Name != "Frank Williams" & Name != "Terrence Williams" & Name != "A.J. English" & Name != "Sam Jones" & Name != "John Johnson" & Name != "John Brown" & Name != "Larry Johnson" & Name != "Reggie Johnson" & Name != "Reggie Theus" & Name != "Michael Young" & Name != "Bernard Thompson" & Name != "Dwayne Polee" & Name != "Mike Brown" & Name != "Mike Williams" & Name != "Tim Kempton" & Name != "David Rivers" & Name != "Avery Johnson" & Name != "Chris Washburn" & Name != "Eric Johnson" & Name != "Kevin Johnson" & Name != "Thomas Hamilton" & Name != "Steve Smith" & Name != "Wesley Person" & Name != "Michael Bradley" & Name != "Rodney Williams" & Name != "JaJuan Johnson" &  Name != "James Robinson" & Name != "Eric Washington" & Name != "Marcus Thornton" & Name != "Mike Scott" & Name != "Reggie Smith" & Name != "Deonte Burton" & Name != "Joseph Young" & Name != "Tyler Stone" & Name != "Eric Anderson" & Name != "Aaron Williams" & Name != "Chris Smith" & Name != "Jordan Williams" & Name != "Anthony Johnson" & Name != "Chris Corchiani")
+ncaa.ind <- subset(ncaa.ind, Name != "Andre Brown" & Name != "Earl Watson" & Name != "Chris Robinson" & Name != "John Edwards" & Name != "Wesley Johnson" & Name != "Joel James" & Name != "Devin Harris" & Name != "Marvin Williams" &Name != "Josh Smith" & Name != "Maceo Baston" & Name != "Lamond Murray" & Name != "Maurice Taylor" & Name != "Matt Howard" & Name != "James White" & Name != "Bobby Brown" & Name != "Juwan Howard" & Name != "Mo Williams" & Name != "Brandon Williams" &Name != "James Johnson" & Name != "Frank Williams" & Name != "Terrence Williams" & Name != "A.J. English" & Name != "Sam Jones" & Name != "John Johnson" & Name != "John Brown" & Name != "Larry Johnson" & Name != "Reggie Johnson" & Name != "Reggie Theus" & Name != "Michael Young" & Name != "Bernard Thompson" & Name != "Dwayne Polee" & Name != "Mike Brown" & Name != "Mike Williams" & Name != "Tim Kempton" & Name != "David Rivers" & Name != "Avery Johnson" & Name != "Chris Washburn" & Name != "Eric Johnson" & Name != "Kevin Johnson" & Name != "Thomas Hamilton" & Name != "Steve Smith" & Name != "Wesley Person" & Name != "Michael Bradley" & Name != "Rodney Williams" & Name != "JaJuan Johnson" &  Name != "James Robinson" & Name != "Eric Washington" & Name != "Mike Scott" & Name != "Reggie Smith" & Name != "Deonte Burton" & Name != "Joseph Young" & Name != "Tyler Stone" & Name != "Eric Anderson" & Name != "Aaron Williams" & Name != "Chris Smith" & Name != "Jordan Williams" & Name != "Anthony Johnson" & Name != "Chris Corchiani")
 
 ncaa.ind$Name[ncaa.ind$Name == "Larry Nance"] <- "Larry Nance '15"
 ncaa.ind$Name[ncaa.ind$Name == "Jakob Poltl"] <- "Jakob Poeltl"
 ncaa.ind$Name[ncaa.ind$Name == "Gary Payton"] <- "Gary Payton II"
 ncaa.ind$Name[ncaa.ind$Name == "Shawn Kemp"] <- "Shawn Kemp II"
 ncaa.ind$Name[ncaa.ind$Name == "Fred VanVleet"] <- "Fred VanFleet"
+ncaa.ind$Name[ncaa.ind$Name == "Marcus Thornton"] <- "Marcus Thornton '15"
 
 
 write.csv(ncaa.ind, "data/ncaa.ind_2015upd.csv", row.names = FALSE)
@@ -113,7 +114,7 @@ for(i in 1:length(ref)){
 		skl <- readHTMLTable(rawToChar(skl$content), stringsAsFactors = F)
 			skl <- as.data.frame(skl)
 		if(nrow(skl) > 0){ 
-			if(skl[1,2] == "2014-15Â" | skl[1,2] == "2014-15*Â" ){
+			if(substr(skl[1,2], 1, 7) == "2014-15"){
 				sea <- readHTMLTable(rawToChar(sea$content), stringsAsFactors = F)
 					sea <- as.data.frame(sea$team_stats)
 				hld <- data.frame("Tm" = ref[i], "Season" = 2015, "Conf" = skl[1,3], "W" = skl[1,4], "L" = skl[1,5], "W.L" = skl[1,6], "SRS" = skl[1,7], "SOS" = skl[1,8], "PPG" = skl[1,9], "O.PPG" = skl[1,10], "AP.Pre" = skl[1,11], "AP.High" = skl[1,12], "AP.Final" = skl[1,13], "NCAA.Tournament" = skl[1,14], "Coach" = skl[1,15], "G" = sea[1,2], "MP" = sea[1,3], "FG" = sea[1,4], "FGA" = sea[1,5], "X2P" = sea[1,7], "X2PA" = sea[1,8], "X3P" = sea[1,10], "X3PA" = sea[1,11], "FT" = sea[1,13], "FTA" = sea[1,14], "ORB" = sea[1,16], "DRB" = sea[1,17], "TRB" = sea[1,18], "AST" = sea[1,19], "TOV" = sea[1,22], "STL" = sea[1,20], "BLK" = sea[1,21], "PF" = sea[1,23], "PTS" =  sea[1,24])

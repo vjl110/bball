@@ -1,4 +1,7 @@
 setwd("C:/Users/Layne/Dropbox/bball")
+rm(list=ls())
+
+
 library(glmnet) #load glmnet package
 library(SDMTools) #load glmnet package
 
@@ -7,11 +10,15 @@ library(SDMTools) #load glmnet package
 ###
 HOME.adv <- data.frame("Season" = 2001:2015, 
 		       "EFG_O"=NA,  "FTR_O"=NA,  "TOR_O"=NA,  "REB_O"=NA, "MRG_O" = NA, "PACE_O" = NA, "EFG_D"=NA,  "FTR_D"=NA,  "TOR_D"=NA,  "REB_D"=NA, "MRG_D" = NA, "PACE_D" = NA) 
+DIFF.adv <- data.frame("Season" = 2001:2015, 
+		       "EFG_O"=NA,  "FTR_O"=NA,  "TOR_O"=NA,  "REB_O"=NA, "MRG_O" = NA, "PACE_O" = NA, "EFG_D"=NA,  "FTR_D"=NA,  "TOR_D"=NA,  "REB_D"=NA, "MRG_D" = NA, "PACE_D" = NA) 
+DIFF_abs.adv <- data.frame("Season" = 2001:2015, 
+		       "EFG_O"=NA,  "FTR_O"=NA,  "TOR_O"=NA,  "REB_O"=NA, "MRG_O" = NA, "PACE_O" = NA, "EFG_D"=NA,  "FTR_D"=NA,  "TOR_D"=NA,  "REB_D"=NA, "MRG_D" = NA, "PACE_D" = NA) 
 
 DMP <- list()
 for(s in 2001:2015){
 	#####  Basic pre-pred that applies to all 4 factors
-	lnp.yr <- subset(read.csv("data/LUP_RPM.csv", stringsAsFactors=FALSE), (Season == s | Season == s-1 | Season == s+1) & !is.na(EFG) & !is.na(FTR) & !is.na(TOR) & !is.na(REB) & POSS > 0 & PACE != "Inf")
+	lnp.yr <- subset(read.csv("data/LUP_RPM.csv", stringsAsFactors=FALSE), (Season == s | Season == s-1 | Season == s+1) & !is.na(EFG) & !is.na(FTR) & !is.na(TOR) & !is.na(REB) & POSS > 0 & T >= 0 & T < 100)
 	plr.yr <- subset(read.csv("data/plr.csv", stringsAsFactors=FALSE), Season == s | Season == s-1 | Season == s+1)
 		plr.yr <- subset(plr.yr, !duplicated(bbr))
 		plr.yr <- plr.yr[order(plr.yr$bbr), ]
@@ -19,7 +26,7 @@ for(s in 2001:2015){
 	row.names(lnp.yr) <- 1:nrow(lnp.yr)
 	O <- lnp.yr
 	D <- lnp.yr
-	for(j in 16:ncol(lnp.yr)){
+	for(j in 17:ncol(lnp.yr)){
 		ego <- grep(colnames(O)[j], O$LINEUP)
 		O[row.names(O) %in% ego, j] <- 1
 
@@ -27,10 +34,12 @@ for(s in 2001:2015){
 		D[row.names(D) %in% alt, j] <- 1
 	}
 	colnames(D) <- paste0(colnames(D), "_D")
-	lnp.yr <- cbind(O, D[16:ncol(lnp.yr)])  ####  NEEED TO ADD A "D" to NAMEZ!!!
+	lnp.yr <- cbind(O, D[17:ncol(lnp.yr)])  ####  NEEED TO ADD A "D" to NAMEZ!!!
+	rm(O)
+	rm(D)
 
-	
-	data <- data.matrix(lnp.yr[c(4,16:ncol(lnp.yr))]) #turn the data frame (which is now just 1s, -1s, and 0s) into a matrix
+	data <- data.matrix(lnp.yr[c(4, 15:16,17:ncol(lnp.yr))]) #turn the data frame (which is now just 1s, -1s, and 0s) into a matrix
+	#data <- data.matrix(lnp.yr[c(4,17:ncol(lnp.yr))]) #turn the data frame (which is now just 1s, -1s, and 0s) into a matrix
 	X <- sparse.model.matrix(~data[,1]-1)
 	for (i in 2:ncol(data)) {
 		    coluna <- sparse.model.matrix(~data[,i]-1)
@@ -38,7 +47,7 @@ for(s in 2001:2015){
 	}
 
 	#####  Begin modeling for each factor
-	DV <- list(lnp.yr$EFG, lnp.yr$FTR, lnp.yr$TOR, lnp.yr$REB, lnp.yr$MRG/lnp.yr$POSS, lnp.yr$PACE)
+	DV <- list(lnp.yr$EFG, lnp.yr$FTR, lnp.yr$TOR, lnp.yr$REB, lnp.yr$MRG/lnp.yr$POSS, lnp.yr$T)
 	WGTs <- list(lnp.yr$FGA, lnp.yr$FGA, lnp.yr$POSS.to, lnp.yr$RB.chance, lnp.yr$POSS, lnp.yr$POSS)
 	
 		
@@ -60,6 +69,10 @@ for(s in 2001:2015){
 							op_D[,2] <- gsub("_D", "", op_D[,2])
 						HOME.adv[s-2000, i+1] <- op_O[2,1]
 						HOME.adv[s-2000, i+7] <- op_D[2,1]
+						DIFF.adv[s-2000, i+1] <- op_O[3,1]
+						DIFF.adv[s-2000, i+7] <- op_D[3,1]
+						DIFF_abs.adv[s-2000, i+1] <- op_O[4,1]
+						DIFF_abs.adv[s-2000, i+7] <- op_D[4,1]
 							op_O <- na.omit(merge(op_O, plr.yr, by = "bbr", all.x=T))
 							op_D <- na.omit(merge(op_D, plr.yr, by = "bbr", all.x=T))
 
@@ -67,27 +80,42 @@ for(s in 2001:2015){
 	coef_D[[i]] <- op_D
 	}
 	rm(X)
+	rm(op)
+	rm(op_O)
+	rm(op_D)
 
-	output <- data.frame("name" = coef_hld[[1]]$name, "id" = coef_hld[[1]]$id, 
+
+	output <- data.frame("name" = coef_O[[1]]$name, "id" = coef_O[[1]]$id, "Season" = s, 
 			     "EFG.O"=coef_O[[1]]$df, "EFG.D"=coef_D[[1]]$df,
 			     "FTR.O"=coef_O[[2]]$df, "FTR.D"=coef_D[[2]]$df,
 			     "TOR.O"=coef_O[[3]]$df, "TOR.D"=coef_D[[3]]$df,
 			     "REB.O"=coef_O[[4]]$df, "REB.D"=coef_D[[4]]$df,
 			     "MRG.O"=coef_O[[5]]$df, "MRG.D"=coef_D[[5]]$df,
 			     "PCE.O"=coef_O[[6]]$df, "PCE.D"=coef_D[[6]]$df)
-
-
-			rm(coef_hld)
-		plr.set <- subset(read.csv("PLR_RPM.csv", stringsAsFactors=FALSE), Season == s | Season == s-1 | Season == s+1)[c(1, 9, 61)]
-		plr.set <- aggregate( . ~ Name + ID, data = plr.set, sum)
-	output <- na.omit(merge(plr.set, output, by = c("Name", "ID"), all.x = T))
-	output <- subset(output, !duplicated(Name))
-	output$Season <- s
 	DMP[[s - 2000]] <- output
+
 		rm(output)
+		rm(coef_O)
+		rm(coef_D)
 }
+
+
+
 NPI <- do.call("rbind", DMP)
+	TOT <- read.csv("data/TOT_pull.csv")
+	TOT <- TOT[c(1, 8, ncol(TOT))]	
+	TOT$Season <- as.numeric(substr(TOT$Season, 1, 4)) + 1
+	TOT <- aggregate(. ~ id + Season, data = TOT, sum)
+		NPI <- merge(NPI, TOT, by = c("id", "Season"), all.x = T)
+NPI <- subset(NPI, !is.na(MP))
 write.csv(NPI, "NPI.csv", row.names = F)
+
+
+for(j in 4:15){
+	NPI[,j] <- round(NPI[,j], 3)
+}
+write.csv(NPI, "NPI_rnd.csv", row.names = F)
+
 write.csv(HOME.adv, "HOME.adv.csv", row.names = F)
 
 #########  4FBPM
@@ -631,3 +659,4 @@ for(j in 5:44){
 			TST[i,j] <- TST[i,j]*crnt.wgt+ TST[i,j+10]*past.wgt
 		}
 	}
+
