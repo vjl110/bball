@@ -204,6 +204,7 @@ star.ncaa <- ncaa
 	star.ncaa$PRB <- ifelse(!is.na(star.ncaa$OBS) & star.ncaa$OBS >= 5, 2, star.ncaa$PRB)
 	star.ncaa$PRB <- ifelse(!is.na(star.ncaa$OBS) & star.ncaa$OBS >= 7.5, 3, star.ncaa$PRB)
 	star.ncaa$PRB <- ifelse(!is.na(star.ncaa$OBS) & star.ncaa$OBS >= 10, 4, star.ncaa$PRB)
+	star.ncaa <- merge(star.ncaa, data[c(1,4,7,8)], by = c("Name", "Season"), all.x = T)
 
 star.euro <- merge(data, euro.hum, by = c("Name", "Season", "League", "Team", "HUM"), all.x = T)
 	star.euro <- subset(star.euro, League != "NCAA")
@@ -216,21 +217,22 @@ star.euro <- merge(data, euro.hum, by = c("Name", "Season", "League", "Team", "H
 	library(nnet)
 
 	prb.ncaa <- multinom(PRB ~ 
-                 I(predict(ac.lws, newdata= Age)) + I(MP/G) + SOS + MOV +
-                 X2P + X3P + FT + X2PA*atRIM + X3PA + 
-		 I((tmX2PA - X2PA)/((tmX3PA - X3PA))) +
-                 AST*TOV + asd +
-                 TRB + STL + BLK + I(tmSTL - STL) + I(tmBLK - BLK) +
-                 tmPF + Height + NS_vert, 
+                 I(ifelse(is.na(HUM), EWP, (EWP + HUM)/2)) + 
+		 I(predict(ac.lws, newdata= Age)) + SOS + 
+                 PTS + I((X2P + X3P*1.5)/(X2PA + X3PA)) + I(X3PA/(X2PA+X3PA)) +
+                 AST + TOV + asd*I(X2PA + X3PA) +
+                 TRB + STL + BLK + PF +
+                 Height + NS_vert, 
 		 data=star.ncaa, weights = MP)
 	prb.euro <- multinom(PRB ~
- 		 EWP + HUM, 
+ 		 I(ifelse(is.na(HUM), EWP, (EWP + HUM)/2)), 
 		 data=star.euro, weights =  MP)
 
 	PRB.ncaa <- data.frame("PRB" = round(predict(prb.ncaa, newdata=star.ncaa, "probs"), digits=3))
 		colnames(PRB.ncaa) <- c("BUST", "BNCH", "STRT", "STUD", "STAR")
 		star.ncaa <- cbind(star.ncaa, PRB.ncaa)
-			star.ncaa <- merge(data, star.ncaa[c(1:2, 4, 53:57)], by = c("Name", "Season", "League"))
+			star.ncaa <- star.ncaa[c(1:2, 4, 3, 6, 39, 53:59)]
+			colnames(star.ncaa)[4] <- "Team"
 	PRB.euro <- data.frame("PRB" = round(predict(prb.euro, newdata=star.euro, "probs"), digits=3))
 		colnames(PRB.euro) <- c("BUST", "BNCH", "STRT", "STUD", "STAR")
 		star.euro <- cbind(star.euro, PRB.euro)	
@@ -268,24 +270,7 @@ for(i in 1:nrow(draft)){
 }
 colnames(draft)[3] <- "Season"
 
-#add seniors!!!
-snrs <- subset(ncaa, Season == 2015 & EXP > 3)[1:2]
-for(i in 1:nrow(snrs)){
-	ego <- subset(data, Name == snrs$Name[i] & Season <= snrs$Season[i])
-	snrs$League[i] <- as.character(ego$League[1])		
-	snrs$Team[i] <- as.character(ego$Team[1])	
-	snrs$MP[i] <- round(sum(ego$MP, na.rm = T), 0)
-	snrs$EWP[i] <- round(weighted.mean(ego$EWP, ego$MP, na.rm = T), 1)
-	snrs$HUM[i] <- round(weighted.mean(ego$HUM, ego$MP, na.rm = T), 1)
-	snrs$BUST[i] <- round(weighted.mean(ego$BUST, ego$MP, na.rm = T), 2)
-	snrs$BNCH[i] <- round(weighted.mean(ego$BNCH, ego$MP, na.rm = T), 2)
-	snrs$STRT[i] <- round(weighted.mean(ego$STRT, ego$MP, na.rm = T), 2)
-	snrs$STUD[i] <- round(weighted.mean(ego$STUD, ego$MP, na.rm = T), 2)
-	snrs$STAR[i] <- round(weighted.mean(ego$STAR, ego$MP, na.rm = T), 2)
-}
-snrs <- data.frame("Pick" = "", snrs)
 
-draft <- rbind(draft, snrs)
 draft <- subset(draft, !duplicated(Name))
 
 	draft[draft == "NaN"] <- NA	
@@ -300,6 +285,7 @@ draft <- data.frame(draft[1:8], "AVG" = round(ifelse(!is.na(draft$HUM), (draft$H
 	draft <- merge(draft, POS, by = "Name", all.x = T)	
 	draft <- draft[order(draft$AVG, decreasing = T),]
 	draft <- draft[order(draft$Season, decreasing = T),]
+	draft$Pos <- round(draft$Pos, 1)
 
   #########
 ### OUTPUT ####

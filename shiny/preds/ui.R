@@ -28,7 +28,7 @@ shinyUI(
       ),	     
       column(4, 
     	sliderInput("range", "Seasons:",
-                min = 1990, max = 2015, value = c(1990,2015), format="####")
+                min = 1990, max = 2015, value = c(1990,2015), sep="")
       ),
       column(4, 
     	numericInput("mp", "At least X minutes played:",
